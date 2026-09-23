@@ -1,0 +1,16 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run Red Button locally",
+			"type": "shell",
+			"command": ".venv/bin/python",
+			"args": [
+				"-m",
+				"server"
+			],
+			"isBackground": true,
+			"problemMatcher": []
+		}
+	]
+}

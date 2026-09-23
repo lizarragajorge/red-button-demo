@@ -1,0 +1,23 @@
+subscription_id = "00000000-0000-0000-0000-000000000000"
+app_name        = "replace-with-unique-red-button-name"
+location        = "eastus2"
+# Optional: place only App Service and its plan in another region with quota.
+# app_service_location = "centralus"
+display_name    = "Red Button"
+support_url     = ""
+
+# User object IDs, not application/client IDs. No users are assigned by default.
+operator_object_ids = []
+
+service_plan_sku         = "B1"
+api_assignment_required = true
+spa_assignment_required = false
+commvault_mode           = "stub"
+enable_live_operations   = false
+# Match subscription policy if it disables public vault access in stub mode.
+# key_vault_public_network_access_enabled = false
+
+# Live mode additionally needs an externally populated Key Vault secret.
+# commvault_base_url    = "https://commvault.example.com/commandcenter/api"
+# commvault_auth_header = "Authtoken"
+# commvault_secret_name = "commvault-auth"

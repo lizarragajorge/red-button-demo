@@ -14,8 +14,9 @@ The Demo badge explicitly identifies a simulated environment; live mode always w
 
 **Release scope:** this is a reference demo, not a production backup-control
 system or an officially supported Commvault client. Building the frontend requires
-access to Microsoft's internal npm feed. No open-source license has been selected;
-public distribution and reuse permissions require the owner's approval. See the
+access to Microsoft's internal npm feed. The project is licensed under the
+[MIT License](LICENSE); third-party dependencies retain their own licenses.
+Confirm ownership and disclosure approval before public release. See the
 [publication guide](docs/publishing.md) before pushing or sharing source.
 
 ## Five-minute demo

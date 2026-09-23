@@ -14,12 +14,14 @@ or screenshots containing real client information.
 
 ## Approval and licensing
 
-No open-source license or copyright owner has been selected. Before making a
-repository public, obtain the owner's approval to disclose the source and
-internal-feed references, choose an approved license, and review third-party
-dependency license/notice obligations. A private repository does not by itself
-establish redistribution rights. The npm manifest's `private` flag prevents npm
-publication; it does not control GitHub visibility.
+The project uses the [MIT License](../LICENSE), with a copyright notice for
+the Red Button demo contributors. Before making a repository public, confirm
+the appropriate rights holder and approval to disclose the source and
+internal-feed references. Review third-party dependency license/notice
+obligations separately; the project license does not relicense its dependencies.
+Retain the MIT copyright and permission notices when redistributing the source.
+The npm manifest's `private` flag prevents npm publication; it does not control
+GitHub visibility.
 
 ## Review the exact Git snapshot
 

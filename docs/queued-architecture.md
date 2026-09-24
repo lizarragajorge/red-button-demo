@@ -6,6 +6,13 @@ Functions. Changing the setting alone is insufficient: configure storage and
 deploy/start the Functions application as described in the
 [infrastructure guide](infrastructure.md). No authentication bypass is added.
 
+For staged rollout or recovery, `activate_queued_execution=false` keeps
+provisioned storage but stops the worker and selects synchronous web execution.
+It must be applied successfully; editing local variables does not pause Azure
+processing. Restricted subscriptions can use
+`enable_private_storage_networking=true` for private Blob/Queue endpoints and
+outbound app VNet integration without reopening public storage access.
+
 ## Implemented path and integration boundaries
 
 ```text

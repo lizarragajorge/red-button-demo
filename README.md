@@ -47,8 +47,9 @@ or enable live operations just to make a demonstration easier to share.
 
 Open the editable [architecture diagram](docs/architecture.drawio) with the VS Code Draw.io Integration extension or the draw.io desktop app. Its two pages distinguish the default synchronous deployment from the opt-in queued architecture. See the [queued architecture guide](docs/queued-architecture.md) for the execution contract, reliability boundaries, and remaining integration work.
 
-The existing deployment is unchanged. New storage, Functions, and gateway
-resources are opt-in Terraform configuration, not an automatic upgrade.
+Storage, Functions, private storage networking, and gateway resources are opt-in
+Terraform configuration, not an automatic upgrade. Use the documented staged
+activation switch to provision without immediately cutting over the web runtime.
 Existing APIM integration requires the client's confirmed routing and
 authentication contract; the private simulated API is **not** an APIM-hosted stub.
 

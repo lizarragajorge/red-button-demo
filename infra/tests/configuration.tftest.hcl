@@ -70,6 +70,16 @@ mock_provider "azurerm" {
       id = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/test-vnet/subnets/gateway"
     }
   }
+  mock_resource "azurerm_virtual_network" {
+    defaults = {
+      id = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/test-vnet"
+    }
+  }
+  mock_resource "azurerm_private_dns_zone" {
+    defaults = {
+      id = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/test-rg/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net"
+    }
+  }
   mock_resource "azurerm_network_security_group" {
     defaults = {
       id = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/test-rg/providers/Microsoft.Network/networkSecurityGroups/test-nsg"
@@ -127,6 +137,8 @@ variables {
   enable_live_operations                  = false
   key_vault_public_network_access_enabled = true
   enable_three_tier                       = false
+  enable_private_storage_networking       = false
+  activate_queued_execution               = true
   enable_gateway_ingress                  = false
   existing_apim_base_url                  = ""
 }
@@ -397,7 +409,7 @@ run "queued_storage_runtime_and_rbac" {
       azurerm_linux_function_app.worker[0].app_settings["EXECUTION_MODE"] == "queued" &&
       azurerm_linux_function_app.worker[0].app_settings["STORAGE_ACCOUNT_NAME"] == azurerm_storage_account.three_tier["work"].name &&
       azurerm_linux_function_app.worker[0].app_settings["WORK_STORAGE__queueServiceUri"] == azurerm_storage_account.three_tier["work"].primary_queue_endpoint &&
-      azurerm_linux_function_app.worker[0].app_settings["AzureWebJobsStorage__accountName"] == azurerm_storage_account.three_tier["host"].name &&
+      azurerm_linux_function_app.worker[0].storage_account_name == azurerm_storage_account.three_tier["host"].name &&
       azurerm_linux_function_app.worker[0].app_settings["AzureWebJobsStorage__credential"] == "managedidentity" &&
       azurerm_linux_function_app.worker[0].app_settings["INVENTORY_REFRESH_SCHEDULE"] == "0 */5 * * * *" &&
       azurerm_linux_function_app.worker[0].app_settings["INVENTORY_MAX_AGE_SECONDS"] == "900" &&
@@ -604,4 +616,68 @@ run "reject_ambiguous_apim_backend" {
     commvault_base_url     = "https://commvault.example.com/api"
   }
   expect_failures = [var.existing_apim_base_url]
+}
+
+run "private_storage_routes_both_apps_without_public_access" {
+  command = plan
+  variables {
+    enable_three_tier                 = true
+    enable_private_storage_networking = true
+  }
+  assert {
+    condition = (
+      length(azurerm_private_endpoint.storage) == 4 &&
+      length(azurerm_private_dns_zone.storage) == 2 &&
+      length(azurerm_private_dns_zone_virtual_network_link.storage) == 2 &&
+      alltrue([for account in azurerm_storage_account.three_tier : account.public_network_access == "Disabled" && !account.shared_access_key_enabled]) &&
+      azurerm_linux_web_app.demo.virtual_network_subnet_id == azurerm_subnet.storage_integration[0].id &&
+      azurerm_linux_function_app.worker[0].virtual_network_subnet_id == azurerm_subnet.storage_integration[0].id &&
+      azurerm_subnet.storage_integration[0].address_prefixes == tolist(["10.73.1.0/24"]) &&
+      azurerm_subnet.storage_endpoints[0].address_prefixes == tolist(["10.73.2.0/24"])
+    )
+    error_message = "Both apps must use privately resolved Blob/Queue endpoints while storage public and key access stay disabled."
+  }
+}
+
+run "private_storage_off_by_default" {
+  command = plan
+  assert {
+    condition     = length(azurerm_private_endpoint.storage) == 0 && length(azurerm_virtual_network.storage) == 0
+    error_message = "Default synchronous mode must not provision private networking."
+  }
+}
+
+run "reject_private_storage_without_queued_resources" {
+  command = plan
+  variables {
+    enable_private_storage_networking = true
+  }
+  expect_failures = [var.enable_private_storage_networking]
+}
+
+run "reject_public_storage_vnet" {
+  command = plan
+  variables {
+    storage_vnet_cidr = "8.8.0.0/16"
+  }
+  expect_failures = [var.storage_vnet_cidr]
+}
+
+run "pause_preserves_resources_and_sync_web" {
+  command = plan
+  variables {
+    enable_three_tier         = true
+    activate_queued_execution = false
+  }
+  assert {
+    condition = (
+      length(azurerm_storage_account.three_tier) == 2 &&
+      length(azurerm_linux_function_app.worker) == 1 &&
+      !azurerm_linux_function_app.worker[0].enabled &&
+      azurerm_linux_web_app.demo.app_settings["EXECUTION_MODE"] == "sync" &&
+      azurerm_linux_function_app.worker[0].app_settings["EXECUTION_MODE"] == "queued" &&
+      !var.enable_live_operations
+    )
+    error_message = "Pausing must retain durable resources, stop the worker, and leave the web in safe synchronous mode."
+  }
 }

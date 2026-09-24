@@ -1,3 +1,9 @@
+variable "activate_queued_execution" {
+  description = "Activate the queued web runtime and worker after provisioning. False pauses the worker and keeps the web app synchronous without deleting durable storage."
+  type        = bool
+  default     = true
+}
+
 locals {
   commvault_url   = var.existing_apim_base_url != "" ? var.existing_apim_base_url : var.commvault_base_url
   work_containers = toset(["requests", "inventory", "coordination", "stub-state"])
@@ -22,6 +28,7 @@ resource "azurerm_storage_account" "three_tier" {
   shared_access_key_enabled       = false
   default_to_oauth_authentication = true
   allow_nested_items_to_be_public = false
+  public_network_access           = var.enable_private_storage_networking ? "Disabled" : "Enabled"
   tags                            = local.tags
 }
 
@@ -57,6 +64,7 @@ resource "azurerm_role_assignment" "web_queue" {
 
 resource "azurerm_linux_function_app" "worker" {
   count                                          = var.enable_three_tier ? 1 : 0
+  enabled                                        = var.activate_queued_execution
   name                                           = "${var.app_name}-worker"
   resource_group_name                            = azurerm_resource_group.demo.name
   location                                       = azurerm_service_plan.demo.location
@@ -68,7 +76,7 @@ resource "azurerm_linux_function_app" "worker" {
   ftp_publish_basic_authentication_enabled       = false
   webdeploy_publish_basic_authentication_enabled = false
   builtin_logging_enabled                        = false
-  content_share_force_disabled                   = true
+  virtual_network_subnet_id                      = var.enable_private_storage_networking ? azurerm_subnet.storage_integration[0].id : null
   tags                                           = local.tags
 
   identity {
@@ -87,26 +95,25 @@ resource "azurerm_linux_function_app" "worker" {
   }
 
   app_settings = merge({
-    APP_ENV                          = "production"
-    PUBLIC_ORIGIN                    = local.app_url
-    ENTRA_TENANT_ID                  = data.azurerm_client_config.current.tenant_id
-    ENTRA_API_CLIENT_ID              = azuread_application.api.client_id
-    ENTRA_SPA_CLIENT_ID              = azuread_application.spa.client_id
-    EXECUTION_MODE                   = "queued"
-    STORAGE_ACCOUNT_NAME             = azurerm_storage_account.three_tier["work"].name
-    WORK_STORAGE__queueServiceUri    = azurerm_storage_account.three_tier["work"].primary_queue_endpoint
-    WORK_STORAGE__credential         = "managedidentity"
-    AzureWebJobsStorage__accountName = azurerm_storage_account.three_tier["host"].name
-    AzureWebJobsStorage__credential  = "managedidentity"
-    FUNCTIONS_WORKER_RUNTIME         = "python"
-    INVENTORY_REFRESH_SCHEDULE       = "0 */5 * * * *"
-    INVENTORY_MAX_AGE_SECONDS        = "900"
-    COMMVAULT_MODE                   = var.commvault_mode
-    COMMVAULT_BASE_URL               = local.commvault_url
-    COMMVAULT_AUTH_HEADER            = var.commvault_auth_header
-    ENABLE_LIVE_OPERATIONS           = tostring(var.enable_live_operations)
-    SCM_DO_BUILD_DURING_DEPLOYMENT   = "false"
-    ENABLE_ORYX_BUILD                = "false"
+    APP_ENV                         = "production"
+    PUBLIC_ORIGIN                   = local.app_url
+    ENTRA_TENANT_ID                 = data.azurerm_client_config.current.tenant_id
+    ENTRA_API_CLIENT_ID             = azuread_application.api.client_id
+    ENTRA_SPA_CLIENT_ID             = azuread_application.spa.client_id
+    EXECUTION_MODE                  = "queued"
+    STORAGE_ACCOUNT_NAME            = azurerm_storage_account.three_tier["work"].name
+    WORK_STORAGE__queueServiceUri   = azurerm_storage_account.three_tier["work"].primary_queue_endpoint
+    WORK_STORAGE__credential        = "managedidentity"
+    AzureWebJobsStorage__credential = "managedidentity"
+    FUNCTIONS_WORKER_RUNTIME        = "python"
+    INVENTORY_REFRESH_SCHEDULE      = "0 */5 * * * *"
+    INVENTORY_MAX_AGE_SECONDS       = "900"
+    COMMVAULT_MODE                  = var.commvault_mode
+    COMMVAULT_BASE_URL              = local.commvault_url
+    COMMVAULT_AUTH_HEADER           = var.commvault_auth_header
+    ENABLE_LIVE_OPERATIONS          = tostring(var.enable_live_operations)
+    SCM_DO_BUILD_DURING_DEPLOYMENT  = "false"
+    ENABLE_ORYX_BUILD               = "false"
     }, var.commvault_mode == "live" ? {
     COMMVAULT_AUTH_VALUE = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.demo.vault_uri}secrets/${var.commvault_secret_name}/)"
   } : {})

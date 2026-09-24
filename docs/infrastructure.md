@@ -664,6 +664,28 @@ App Service.
 
 ### Separate Function artifact for three-tier mode
 
+For a staged rollout, provision with `enable_three_tier=true` and
+`activate_queued_execution=false`: durable resources remain provisioned, the
+worker is stopped, and the web runtime stays synchronous. Set activation true
+only when ready to run the worker and queued web app together. Pausing does not
+cancel or delete saved requests; account for absolute schedule expiry when
+resuming. Terraform manages this switch so rollback does not leave hidden
+configuration drift. Monitor shared-plan CPU/memory and size it for both
+applications; B1 is the minimum, not a guarantee of adequate combined capacity.
+Changing the plan requires `Microsoft.Web/serverFarms/write` permission.
+
+If subscription policy disables storage public networking, set
+`enable_private_storage_networking=true` together with `enable_three_tier=true`.
+This keeps both storage accounts private and provisions four Blob/Queue private
+endpoints, two private DNS zones/links, and outbound VNet integration for both
+apps. The default dedicated network is `10.73.0.0/16`; customize
+`storage_vnet_cidr` to avoid overlap with your environment. Apps share the
+delegated integration subnet on the same hosting plan; endpoints have a separate
+subnet. This is independent of optional Application Gateway ingress and does not
+make the web UI private or add private Key Vault connectivity. Private endpoints,
+DNS, and data processing add costs. Do not reopen storage to work around policy.
+Verify host storage access and timer/queue execution after DNS/RBAC propagation.
+
 Do not upload the web zip to the worker, or the worker zip to the web app.
 Build the worker on the same approved Linux x86_64/Python 3.12 builder with
 dependencies installed from root `requirements.txt` into

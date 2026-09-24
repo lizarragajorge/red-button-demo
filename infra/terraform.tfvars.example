@@ -3,6 +3,7 @@ app_name        = "replace-with-unique-red-button-name"
 location        = "eastus2"
 # Optional: place only App Service and its plan in another region with quota.
 # app_service_location = "centralus"
+# Stage queued resources without cutting over: activate_queued_execution = false
 display_name    = "Red Button"
 support_url     = ""
 
@@ -38,3 +39,6 @@ enable_gateway_ingress   = false
 # commvault_base_url    = "https://commvault.example.com/commandcenter/api"
 # commvault_auth_header = "Authtoken"
 # commvault_secret_name = "commvault-auth"
+ # For subscriptions that prohibit public storage endpoints:
+ # enable_private_storage_networking = true
+ # storage_vnet_cidr = "10.73.0.0/16"

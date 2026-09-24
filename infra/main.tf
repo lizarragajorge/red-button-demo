@@ -47,6 +47,7 @@ resource "azurerm_service_plan" "demo" {
 }
 
 resource "azurerm_linux_web_app" "demo" {
+  virtual_network_subnet_id                      = var.enable_private_storage_networking ? azurerm_subnet.storage_integration[0].id : null
   depends_on                                     = [azurerm_application_gateway.ingress]
   name                                           = var.app_name
   location                                       = azurerm_service_plan.demo.location
@@ -117,7 +118,7 @@ resource "azurerm_linux_web_app" "demo" {
     }, var.commvault_mode == "live" ? {
     COMMVAULT_AUTH_VALUE = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.demo.vault_uri}secrets/${var.commvault_secret_name}/)"
     } : {}, var.enable_three_tier ? {
-    EXECUTION_MODE       = "queued"
+    EXECUTION_MODE       = var.activate_queued_execution ? "queued" : "sync"
     STORAGE_ACCOUNT_NAME = azurerm_storage_account.three_tier["work"].name
   } : {})
 

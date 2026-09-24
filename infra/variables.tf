@@ -152,3 +152,105 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "enable_three_tier" {
+  description = "Opt in to durable queued execution, private storage containers and a Functions worker on the existing plan. False preserves the hosted synchronous demo."
+  type        = bool
+  default     = false
+}
+
+variable "existing_apim_base_url" {
+  description = "Optional existing, operator-configured APIM HTTPS API base URL. No APIM instance, API, policy, backend or stub host is provisioned."
+  type        = string
+  default     = ""
+  validation {
+    condition = var.existing_apim_base_url == "" || (
+      can(regex("^https://[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?(/[^?#[:space:]\\\\]*)?$", var.existing_apim_base_url)) &&
+      var.enable_three_tier && var.commvault_mode == "live" && var.commvault_base_url == ""
+    )
+    error_message = "existing_apim_base_url requires three-tier live mode, an empty commvault_base_url, and an HTTPS DNS URL without credentials, port, query or fragment. Routes/policies must already exist."
+  }
+}
+
+variable "enable_gateway_ingress" {
+  description = "Opt in to a separately billed HTTPS-only WAF_v2 gateway and lock down web/SCM ingress. Requires three-tier mode, DNS and an existing Key Vault certificate."
+  type        = bool
+  default     = false
+  validation {
+    condition = !var.enable_gateway_ingress || (
+      var.enable_three_tier && var.gateway_hostname != "" &&
+      var.gateway_certificate_secret_id != "" && var.gateway_certificate_vault_id != ""
+    )
+    error_message = "Gateway ingress requires enable_three_tier, gateway_hostname, gateway_certificate_secret_id and gateway_certificate_vault_id."
+  }
+}
+
+variable "gateway_hostname" {
+  description = "Existing DNS hostname to point to the gateway IP; certificate must cover it. No DNS zone/record is managed."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.gateway_hostname == "" || (length(var.gateway_hostname) <= 253 && can(regex("^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$", var.gateway_hostname)))
+    error_message = "gateway_hostname must be empty or a lowercase fully qualified DNS hostname, not a URL or wildcard."
+  }
+}
+
+variable "gateway_certificate_secret_id" {
+  description = "Versionless HTTPS Key Vault secret URI containing an enabled, exportable PFX certificate. Never the certificate value."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.gateway_certificate_secret_id == "" || can(regex("^https://[a-zA-Z0-9-]+\\.vault\\.azure\\.net/secrets/[a-zA-Z0-9-]+/?$", var.gateway_certificate_secret_id))
+    error_message = "Use a versionless https://<vault>.vault.azure.net/secrets/<certificate> URI."
+  }
+}
+
+variable "gateway_certificate_vault_id" {
+  description = "ARM resource ID of the existing RBAC-enabled certificate vault, reachable by Application Gateway. Used only to assign certificate-reading permission."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.gateway_certificate_vault_id == "" || can(regex("(?i)^/subscriptions/[0-9a-f-]{36}/resourceGroups/[^/]+/providers/Microsoft.KeyVault/vaults/[a-z0-9-]+$", var.gateway_certificate_vault_id))
+    error_message = "gateway_certificate_vault_id must be an existing Key Vault ARM resource ID."
+  }
+}
+
+variable "gateway_vnet_cidr" {
+  description = "Dedicated nonoverlapping RFC1918 IPv4 gateway VNet range."
+  type        = string
+  default     = "10.72.0.0/16"
+  validation {
+    condition = can(cidrnetmask(var.gateway_vnet_cidr)) && can(regex("^(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.)", var.gateway_vnet_cidr)) && try(
+      tonumber(split("/", var.gateway_vnet_cidr)[1]) >= 16 && tonumber(split("/", var.gateway_vnet_cidr)[1]) <= 24 &&
+      cidrhost(var.gateway_vnet_cidr, 0) == split("/", var.gateway_vnet_cidr)[0], false
+    )
+    error_message = "gateway_vnet_cidr must be a canonical private IPv4 network with /16 through /24 prefix."
+  }
+}
+
+variable "gateway_subnet_cidr" {
+  description = "Dedicated /24 gateway subnet within gateway_vnet_cidr; no other workloads may use it."
+  type        = string
+  default     = "10.72.0.0/24"
+  validation {
+    condition = can(cidrnetmask(var.gateway_subnet_cidr)) && try(
+      split("/", var.gateway_subnet_cidr)[1] == "24" &&
+      cidrhost(var.gateway_subnet_cidr, 0) == split("/", var.gateway_subnet_cidr)[0] &&
+      cidrhost("${split("/", var.gateway_subnet_cidr)[0]}/${split("/", var.gateway_vnet_cidr)[1]}", 0) == cidrhost(var.gateway_vnet_cidr, 0), false
+    )
+    error_message = "gateway_subnet_cidr must be a canonical /24 IPv4 subnet contained in gateway_vnet_cidr."
+  }
+}
+
+variable "gateway_scm_allowed_cidrs" {
+  description = "Explicit trusted public IPv4 deployment egress ranges (/24-/32). Gateway mode denies SCM access by default; Entra deployment authorization is still required."
+  type        = set(string)
+  default     = []
+  validation {
+    condition = alltrue([for cidr in var.gateway_scm_allowed_cidrs : can(cidrnetmask(cidr)) && try(
+      tonumber(split("/", cidr)[1]) >= 24 && tonumber(split("/", cidr)[1]) <= 32 &&
+      cidrhost(cidr, 0) == split("/", cidr)[0], false
+    )])
+    error_message = "SCM deployment allowlist must contain canonical IPv4 CIDRs with /24 through /32 prefixes; broad internet access is not allowed."
+  }
+}

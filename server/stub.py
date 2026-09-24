@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from .models import DelayOptions
 from .queries import query_int, strict_query
+from .storage import Conflict, Repository
 
 SEEDS = (
     {"id": 101, "name": "demo-commserve", "displayName": "Demo CommServe", "hostName": "commserve.demo.invalid", "OS": "Windows Server 2022", "isInfrastructure": True, "isCommServer": True},
@@ -37,7 +38,10 @@ class StubStore:
         return replace(state)
 
 
-def create_stub(auth_value: str, auth_header: str = "Authorization", store: StubStore | None = None) -> FastAPI:
+def create_stub(
+    auth_value: str, auth_header: str = "Authorization", store: StubStore | None = None,
+    repository: Repository | None = None,
+) -> FastAPI:
     store = store or StubStore()
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.state.store = store
@@ -65,6 +69,15 @@ def create_stub(auth_value: str, auth_header: str = "Authorization", store: Stub
             {**server, "configured": True, "networkReadiness": "ONLINE", "version": "11.46.0"}
             for server in SEEDS if flag == "0" or server["isInfrastructure"]
         ]
+        if repository is not None:
+            for server in servers:
+                doc = await repository.read("stub-state", f'{server["id"]}.json')
+                state = doc.value if doc else {}
+                enable_at = state.get("enableAt")
+                server["stubBackupDisabled"] = bool(state.get("disabled")) and (
+                    enable_at is None or store.clock() < enable_at
+                )
+                server["stubEnableAt"] = enable_at if server["stubBackupDisabled"] else None
         return {"totalServers": len(servers), "servers": servers}
 
     @app.put("/V4/Server/{server_id}/Backup/Action/Disable")
@@ -81,7 +94,19 @@ def create_stub(auth_value: str, auth_header: str = "Authorization", store: Stub
             return failure(404, "Server not found.")
         if options.enable_after_a_delay is not None and options.enable_after_a_delay <= store.clock():
             return failure(400, "Re-enable timestamp must be in the future.")
-        store.states[parsed_id] = BackupState(disabled=True, enable_at=options.enable_after_a_delay)
+        if repository is not None:
+            key = f"{parsed_id}.json"
+            doc = await repository.read("stub-state", key)
+            value = {"disabled": True, "enableAt": options.enable_after_a_delay}
+            try:
+                if doc:
+                    await repository.replace("stub-state", key, value, doc.etag)
+                else:
+                    await repository.create("stub-state", key, value)
+            except Conflict:
+                return failure(409, "Concurrent simulated backup update.")
+        else:
+            store.states[parsed_id] = BackupState(disabled=True, enable_at=options.enable_after_a_delay)
         return {"errorCode": 0, "errorMessage": ""}
 
     @app.exception_handler(404)

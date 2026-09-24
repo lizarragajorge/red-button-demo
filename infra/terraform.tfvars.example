@@ -14,6 +14,23 @@ api_assignment_required = true
 spa_assignment_required = false
 commvault_mode           = "stub"
 enable_live_operations   = false
+# Opt-in only: leaves the existing hosted synchronous demo unchanged by default.
+enable_three_tier        = false
+enable_gateway_ingress   = false
+
+# Existing APIM integration (no new paid APIM instance or API routes are created).
+# Requires enable_three_tier=true, commvault_mode="live", empty commvault_base_url,
+# and already-configured/verified routes, policies, backend and vault credential.
+# existing_apim_base_url = "https://existing-gateway.example.com/approved-api"
+
+# Optional HTTPS-only WAF_v2 ingress adds significant cost. Requires three-tier.
+# Supply an existing certificate and arrange DNS/Key Vault network access first.
+# gateway_hostname             = "backup.example.com"
+# gateway_certificate_secret_id = "https://existing-vault.vault.azure.net/secrets/backup-tls"
+# gateway_certificate_vault_id   = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/certificates/providers/Microsoft.KeyVault/vaults/existing-vault"
+# gateway_vnet_cidr              = "10.72.0.0/16"
+# gateway_subnet_cidr            = "10.72.0.0/24"
+# gateway_scm_allowed_cidrs      = ["203.0.113.10/32"] # Replace with trusted deployment egress; empty denies SCM.
 # Match subscription policy if it disables public vault access in stub mode.
 # key_vault_public_network_access_enabled = false
 

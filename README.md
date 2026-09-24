@@ -8,7 +8,7 @@ The UI uses a compact operations-workspace layout: light inventory/results surfa
 
 Inventory can be searched by name, hostname, or ID. Search preserves selections and explicitly counts selected servers hidden by the search; the review dialog always lists every target. Refreshing inventory or changing the infrastructure filter clears selection. The 50-server limit is enforced while selecting, not after submission. Each review starts with the safe 60-minute re-enable default. Results distinguish accepted, partial, failed, and unknown outcomes; an unknown outcome requires checking Commvault before reselecting targets and retrying.
 
-The Demo badge explicitly identifies a simulated environment; live mode always warns that actions change real backup settings. **Last request** refers only to this browser session, not current backup state or a persistent audit history. Results lead with outcomes and next steps. Expand **Support details** for request IDs, target IDs/names, requested schedules, and error diagnostics; **Copy details** copies only that diagnostic payload, not authentication tokens. Server names may be sensitive: share details only with trusted support. Re-enable scheduling is a request, not a verified promise of recovery.
+The Demo badge explicitly identifies a simulated environment; live mode always warns that actions change real backup settings. **Last request** is not current backup state. In default synchronous mode, results are browser-session-local. Opt-in queued mode saves requests on the server and lets their owner resume tracking after reload or look up a saved Request ID. Neither mode is a complete audit-history viewer. Results lead with outcomes and next steps. Expand **Support details** for request IDs, target IDs/names, requested schedules, and error diagnostics; **Copy details** copies only that diagnostic payload, not authentication tokens. Server names may be sensitive: share details only with trusted support. Re-enable scheduling is a request, not a verified promise of recovery.
 
 **Safe defaults:** simulated API only, no authentication bypass, no live changes without an explicit server-side gate, an operator role, and a typed confirmation. Azure CLI authentication is for infrastructure management; users still sign in to the app with MSAL.
 
@@ -29,10 +29,13 @@ Confirm ownership and disclosure approval before public release. See the
 3. Review the target and the default 60-minute re-enable request. First choose
    **Cancel** to demonstrate that reviewing alone does not submit anything.
 4. Reopen the dialog, type `DISABLE BACKUPS`, and confirm. The request changes
-   only the private in-memory stub.
+   only the private simulated environment. In queued mode, demonstrate **Queued**
+   followed by the worker's per-server outcomes; queue acceptance is not success.
 5. Explain **Request accepted** versus verified backup state. Expand **Support
    details** to see the request correlation information. Browser results are
-   session-local; restarting the backend resets simulated state.
+   session-local in default synchronous mode; restarting that backend resets
+   simulated state. Queued mode uses shared Blob state and supports saved
+   request lookup after a browser or process restart.
 
 An operator needs the `BackupOperator` role on the API enterprise application.
 When SPA assignment is required, assign access to that application too. The app
@@ -42,7 +45,12 @@ or enable live operations just to make a demonstration easier to share.
 
 ## Architecture
 
-Open the editable [architecture diagram](docs/architecture.drawio) with the VS Code Draw.io Integration extension or the draw.io desktop app. It shows the default simulated path and the optional live integration.
+Open the editable [architecture diagram](docs/architecture.drawio) with the VS Code Draw.io Integration extension or the draw.io desktop app. Its two pages distinguish the default synchronous deployment from the opt-in queued architecture. See the [queued architecture guide](docs/queued-architecture.md) for the execution contract, reliability boundaries, and remaining integration work.
+
+The existing deployment is unchanged. New storage, Functions, and gateway
+resources are opt-in Terraform configuration, not an automatic upgrade.
+Existing APIM integration requires the client's confirmed routing and
+authentication contract; the private simulated API is **not** an APIM-hosted stub.
 
 ```text
 Browser -- MSAL / authorization code + PKCE --> Microsoft Entra ID
@@ -126,6 +134,7 @@ Copy `.env.example` to `.env` and set:
 | `APP_ENV` | `development` locally; `production` requires configured Entra IDs |
 | `PORT` | Python server port; `8080` by default |
 | `COMMVAULT_MODE` | `stub` by default; `live` only for an approved integration |
+| `EXECUTION_MODE` | `sync` by default; `queued` requires shared storage and the Function worker/timer |
 | `ENABLE_LIVE_OPERATIONS` | `false` by default; independently blocks live writes |
 | `APP_DISPLAY_NAME` | Public app name, default `Red Button`; 1-60 printable characters, not blank |
 | `SUPPORT_URL` | Optional public HTTPS support destination; no credentials, whitespace, or backslashes; empty hides the link |
@@ -186,7 +195,7 @@ This is a **two-operation compatible demo**, not a full Commvault emulator or a 
 
 * The list API does not document a backup-enabled field. We do not invent one. “Request accepted” means the last command succeeded, not that current backup state has been queried.
 * Fixture fields are a subset of the optional server schema. Extra real response fields are preserved by the adapter.
-* Stub state and scheduled re-enables are in memory and reset on restart. Its clock-based schedule is evaluated when state is inspected in tests; it does not schedule real background jobs.
+* Default synchronous stub state and scheduled re-enables are in memory and reset on restart. Queued mode persists simulated state in Blob storage. Neither mode controls real backup jobs or proves that a live re-enable schedule executed.
 * Stub validation/error status codes are explicit demo choices: the linked pages do not specify a comprehensive error contract. Validate these against client responses before asserting exact compatibility.
 * No login/token-refresh endpoint, paging extension, account-routing headers, batch endpoint, restore control, or running-job cancellation is emulated.
 * Disabling backup activity is not a substitute for cancelling jobs, isolating hosts, or validating incident-response policy.
@@ -229,6 +238,13 @@ For an approved existing Chrome executable, set `PLAYWRIGHT_CHROME_PATH` rather 
 
 See [docs/infrastructure.md](docs/infrastructure.md) for the Python App Service runtime, Terraform, deployment packaging, permissions, and costs. Provisioning creates billable resources; inspect a plan before applying it. Never package `.env`, user `.npmrc`, state files or private keys. Build production Python dependencies on Linux for Azure; do not ship the macOS virtual environment or macOS native wheels.
 
-Audit events are structured JSON on stdout: actor object ID, request ID, mode, target IDs and per-server result. Credentials and raw upstream error bodies are not logged. Audit retention/access controls need a production policy. Browser results are session-local, not a durable audit store.
+Audit events are structured JSON on stdout: actor object ID, request ID, mode, target IDs and per-server result. Credentials and raw upstream error bodies are not logged. Audit retention/access controls need a production policy. Queued request records support recovery and status lookup, but are not an immutable audit store.
 
-This is a small, single-instance demo. It runs selected requests sequentially, limits batches to 50, and rejects concurrent overlapping server IDs within one process. A lost connection or timeout can have an unknown outcome: check Commvault/audit logs before retrying. For production or scale-out, add a durable work queue, cross-instance operation coordination, approval workflow, rate limits and operational reconciliation. Large sequential batches can exceed hosting request limits; use a background worker before expanding the demo's scope.
+Default synchronous mode remains a small, single-instance demo: it processes
+up to 50 targets sequentially with in-process overlap protection. Queued mode
+adds durable requests, a background worker, and cross-instance coordination.
+A lost connection or worker interruption can still have an unknown outcome:
+check Commvault and request/audit records before retrying. Neither mode claims
+exactly-once execution. Production still requires deployment-specific load and
+failure testing, approval workflow, rate limits, retention, monitoring, and
+operational reconciliation.

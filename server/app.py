@@ -1,14 +1,12 @@
 import json
 import re
-import secrets
 import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
-import httpx
 import jwt
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -22,7 +20,9 @@ from .config import Settings
 from .middleware import BodyLimitMiddleware
 from .models import DisableRequest
 from .queries import strict_query
-from .stub import create_stub
+from .execution import DeliveryUncertain, InvalidSchedule, RequestConflict, RequestNotFound, inventory, owned_request, submit
+from .runtime import upstream_client
+from .storage import AzureRepository, Repository, StorageUnavailable
 
 DIST = Path(__file__).resolve().parent.parent / "dist"
 
@@ -36,30 +36,31 @@ def create_app(
     client: CommvaultClient | None = None,
     verifier: TokenVerifier | None = None,
     audit: Callable[[dict], None] = write_audit,
+    repository: Repository | None = None,
 ) -> FastAPI:
     verifier = verifier or EntraTokenVerifier(settings)
     active_servers: set[int] = set()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        if client is not None:
-            app.state.client = client
-            yield
-            return
-        auth_value = settings.commvault_auth_value
-        base_url = settings.commvault_base_url
-        transport = None
-        if settings.mode == "stub":
-            auth_value = secrets.token_urlsafe(32)
-            stub = create_stub(auth_value, settings.commvault_auth_header)
-            transport = httpx.ASGITransport(app=stub)
-            base_url = "http://commvault-stub.internal"
-        async with httpx.AsyncClient(transport=transport) as http:
-            app.state.client = CommvaultClient(http, base_url, settings.commvault_auth_header, auth_value)
-            audit({"event": "started", "mode": settings.mode, "identityConfigured": settings.identity_configured})
-            if not settings.identity_configured:
-                audit({"event": "identity_configuration_required", "message": "Protected APIs are unavailable; configure ENTRA_* settings."})
-            yield
+        repo = repository
+        if settings.execution_mode == "queued" and repo is None:
+            repo = AzureRepository(settings)
+        app.state.repository = repo
+        try:
+            if client is not None:
+                app.state.client = client
+                yield
+            else:
+                async with upstream_client(settings, repo) as upstream:
+                    app.state.client = upstream
+                    audit({"event": "started", "mode": settings.mode, "executionMode": settings.execution_mode, "identityConfigured": settings.identity_configured})
+                    if not settings.identity_configured:
+                        audit({"event": "identity_configuration_required", "message": "Protected APIs are unavailable; configure ENTRA_* settings."})
+                    yield
+        finally:
+            if repo is not None and repository is None:
+                await repo.close()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(BodyLimitMiddleware)
@@ -118,6 +119,11 @@ def create_app(
         audit({"event": "request_failed", "requestId": request.state.request_id, "code": error.code})
         return JSONResponse({"error": str(error), "requestId": request.state.request_id}, status_code=502)
 
+    @app.exception_handler(StorageUnavailable)
+    async def storage_error(request: Request, error: StorageUnavailable):
+        audit({"event": "storage_unavailable", "requestId": request.state.request_id})
+        return JSONResponse({"error": str(error), "requestId": request.state.request_id}, status_code=503)
+
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, error: Exception):
         request_id = getattr(request.state, "request_id", str(uuid4()))
@@ -137,6 +143,7 @@ def create_app(
             "displayName": settings.display_name,
             "supportUrl": settings.support_url,
             "mode": settings.mode,
+            "executionMode": settings.execution_mode,
             "liveOperationsEnabled": settings.live_operations == "true",
             "identityConfigured": settings.identity_configured,
             "tenantId": settings.tenant_id,
@@ -158,8 +165,21 @@ def create_app(
                 raise ValueError("Invalid filter.")
         except ValueError:
             raise HTTPException(400, "Invalid server filter.") from None
+        if settings.execution_mode == "queued":
+            return await inventory(request.app.state.repository, settings, flag == "1")
         data = await request.app.state.client.list_servers(int(flag))
         return data.model_dump(exclude_unset=True)
+
+    @app.get("/api/requests/{request_id}")
+    async def get_request(request_id: str, request: Request, actor: Actor = Depends(authenticate)):
+        if settings.execution_mode != "queued":
+            raise HTTPException(404, "Request not found.")
+        try:
+            return await owned_request(
+                request.app.state.repository, str(UUID(request_id)), f"{settings.tenant_id}:{actor.oid}",
+            )
+        except (ValueError, RequestNotFound):
+            raise HTTPException(404, "Request not found.") from None
 
     @app.post("/api/disable")
     async def disable_backups(body: DisableRequest, request: Request, actor: Actor = Depends(authenticate)):
@@ -167,8 +187,36 @@ def create_app(
             raise HTTPException(403, "BackupOperator role is required.")
         if settings.mode == "live" and settings.live_operations != "true":
             raise HTTPException(403, "Live backup changes are disabled by configuration.")
-        if body.options.enable_after_a_delay is not None and body.options.enable_after_a_delay <= time.time():
+        if settings.execution_mode == "sync" and body.options.enable_after_a_delay is not None and body.options.enable_after_a_delay <= time.time():
             raise HTTPException(400, "Re-enable time must be in the future.")
+        if settings.execution_mode == "queued":
+            try:
+                keys = request.headers.getlist("idempotency-key")
+                if len(keys) > 1:
+                    raise ValueError()
+                request_id = str(UUID(keys[0])) if keys else str(uuid4())
+            except ValueError:
+                raise HTTPException(400, "Idempotency-Key must be one UUID.") from None
+            request.state.request_id = request_id
+            try:
+                record = await submit(
+                    request.app.state.repository, request_id, f"{settings.tenant_id}:{actor.oid}",
+                    settings.mode, body,
+                )
+            except RequestNotFound:
+                raise HTTPException(404, "Request not found.") from None
+            except RequestConflict:
+                raise HTTPException(409, "Idempotency-Key already identifies different request content.") from None
+            except InvalidSchedule:
+                raise HTTPException(400, "Re-enable time must be in the future.") from None
+            except DeliveryUncertain as error:
+                audit({"event": "enqueue_uncertain", "requestId": request_id, "actorId": actor.oid})
+                return JSONResponse({
+                    "error": "Queue delivery could not be confirmed. Inspect this request before submitting again.",
+                    "requestId": request_id, "request": error.record,
+                }, status_code=503, headers={"Location": f"/api/requests/{request_id}"})
+            audit({"event": "disable_queued", "requestId": request_id, "actorId": actor.oid, "mode": settings.mode})
+            return JSONResponse(record, status_code=202, headers={"Location": f"/api/requests/{request_id}"})
         if active_servers.intersection(body.server_ids):
             raise HTTPException(409, "An operation is already running for a selected server. Check its result before retrying.")
         active_servers.update(body.server_ids)

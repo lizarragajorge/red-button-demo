@@ -38,6 +38,54 @@ mock_provider "azurerm" {
       }
     }
   }
+
+  mock_resource "azurerm_storage_account" {
+    defaults = {
+      id                     = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/test-rg/providers/Microsoft.Storage/storageAccounts/teststorage"
+      primary_queue_endpoint = "https://teststorage.queue.core.windows.net/"
+    }
+  }
+  mock_resource "azurerm_storage_container" {
+    defaults = {
+      id = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/test-rg/providers/Microsoft.Storage/storageAccounts/teststorage/blobServices/default/containers/test-container"
+    }
+  }
+  mock_resource "azurerm_storage_queue" {
+    defaults = {
+      id = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/test-rg/providers/Microsoft.Storage/storageAccounts/teststorage/queueServices/default/queues/test-queue"
+    }
+  }
+  mock_resource "azurerm_linux_function_app" {
+    defaults = {
+      id = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/test-rg/providers/Microsoft.Web/sites/test-worker"
+      identity = {
+        type         = "SystemAssigned"
+        principal_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        tenant_id    = "11111111-1111-1111-1111-111111111111"
+      }
+    }
+  }
+  mock_resource "azurerm_subnet" {
+    defaults = {
+      id = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/test-vnet/subnets/gateway"
+    }
+  }
+  mock_resource "azurerm_network_security_group" {
+    defaults = {
+      id = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/test-rg/providers/Microsoft.Network/networkSecurityGroups/test-nsg"
+    }
+  }
+  mock_resource "azurerm_public_ip" {
+    defaults = {
+      id = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/test-rg/providers/Microsoft.Network/publicIPAddresses/test-ip"
+    }
+  }
+  mock_resource "azurerm_user_assigned_identity" {
+    defaults = {
+      id           = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/test-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/test-gateway"
+      principal_id = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    }
+  }
 }
 
 mock_provider "azuread" {
@@ -78,6 +126,9 @@ variables {
   commvault_mode                          = "stub"
   enable_live_operations                  = false
   key_vault_public_network_access_enabled = true
+  enable_three_tier                       = false
+  enable_gateway_ingress                  = false
+  existing_apim_base_url                  = ""
 }
 
 run "secure_stub_defaults" {
@@ -282,4 +333,275 @@ run "vault_name_handles_hyphenated_app_names" {
     )
     error_message = "Derived vault names must satisfy Azure naming constraints."
   }
+}
+
+run "sync_default_has_no_three_tier_resources" {
+  command = plan
+  assert {
+    condition = (
+      length(azurerm_storage_account.three_tier) == 0 &&
+      length(azurerm_storage_container.work) == 0 &&
+      length(azurerm_storage_queue.work) == 0 &&
+      length(azurerm_linux_function_app.worker) == 0 &&
+      length(azurerm_application_gateway.ingress) == 0 &&
+      length(azurerm_virtual_network.gateway) == 0 &&
+      length(azurerm_public_ip.gateway) == 0 &&
+      !contains(keys(azurerm_linux_web_app.demo.app_settings), "EXECUTION_MODE") &&
+      !contains(keys(azurerm_linux_web_app.demo.app_settings), "STORAGE_ACCOUNT_NAME") &&
+      azurerm_linux_web_app.demo.site_config[0].ip_restriction_default_action == "Allow" &&
+      !azurerm_linux_web_app.demo.site_config[0].scm_use_main_ip_restriction
+    )
+    error_message = "Default must preserve sync hosting without worker/storage/gateway or ingress restrictions."
+  }
+}
+
+run "queued_storage_runtime_and_rbac" {
+  command = plan
+  variables {
+    enable_three_tier = true
+  }
+  assert {
+    condition = (
+      toset(keys(azurerm_storage_account.three_tier)) == toset(["work", "host"]) &&
+      toset(keys(azurerm_storage_container.work)) == toset(["requests", "inventory", "coordination", "stub-state"]) &&
+      toset(keys(azurerm_storage_queue.work)) == toset(["requests", "requests-poison"]) &&
+      alltrue([for container in azurerm_storage_container.work : container.container_access_type == "private"]) &&
+      alltrue([for account in azurerm_storage_account.three_tier :
+        !account.shared_access_key_enabled && !account.allow_nested_items_to_be_public &&
+        account.https_traffic_only_enabled && account.default_to_oauth_authentication &&
+        account.min_tls_version == "TLS1_2"
+      ]) &&
+      azurerm_storage_account.three_tier["host"].name != azurerm_storage_account.three_tier["work"].name &&
+      azurerm_linux_web_app.demo.app_settings["EXECUTION_MODE"] == "queued" &&
+      azurerm_linux_web_app.demo.app_settings["STORAGE_ACCOUNT_NAME"] == azurerm_storage_account.three_tier["work"].name
+    )
+    error_message = "Queued mode requires isolated identity-only host/work storage, private containers and two queues."
+  }
+  assert {
+    condition = (
+      azurerm_linux_function_app.worker[0].service_plan_id == azurerm_service_plan.demo.id &&
+      azurerm_service_plan.demo.sku_name == "B1" &&
+      azurerm_linux_function_app.worker[0].functions_extension_version == "~4" &&
+      azurerm_linux_function_app.worker[0].site_config[0].always_on &&
+      azurerm_linux_function_app.worker[0].site_config[0].application_stack[0].python_version == "3.12" &&
+      azurerm_linux_function_app.worker[0].storage_uses_managed_identity &&
+      azurerm_linux_function_app.worker[0].storage_account_access_key == null &&
+      azurerm_linux_function_app.worker[0].https_only &&
+      !azurerm_linux_function_app.worker[0].ftp_publish_basic_authentication_enabled &&
+      !azurerm_linux_function_app.worker[0].webdeploy_publish_basic_authentication_enabled &&
+      azurerm_linux_function_app.worker[0].app_settings["APP_ENV"] == "production" &&
+      azurerm_linux_function_app.worker[0].app_settings["PUBLIC_ORIGIN"] == output.app_url &&
+      azurerm_linux_function_app.worker[0].app_settings["ENTRA_API_CLIENT_ID"] == azuread_application.api.client_id &&
+      azurerm_linux_function_app.worker[0].app_settings["ENTRA_SPA_CLIENT_ID"] == azuread_application.spa.client_id &&
+      azurerm_linux_function_app.worker[0].app_settings["ENTRA_TENANT_ID"] == data.azurerm_client_config.current.tenant_id &&
+      azurerm_linux_function_app.worker[0].app_settings["EXECUTION_MODE"] == "queued" &&
+      azurerm_linux_function_app.worker[0].app_settings["STORAGE_ACCOUNT_NAME"] == azurerm_storage_account.three_tier["work"].name &&
+      azurerm_linux_function_app.worker[0].app_settings["WORK_STORAGE__queueServiceUri"] == azurerm_storage_account.three_tier["work"].primary_queue_endpoint &&
+      azurerm_linux_function_app.worker[0].app_settings["AzureWebJobsStorage__accountName"] == azurerm_storage_account.three_tier["host"].name &&
+      azurerm_linux_function_app.worker[0].app_settings["AzureWebJobsStorage__credential"] == "managedidentity" &&
+      azurerm_linux_function_app.worker[0].app_settings["INVENTORY_REFRESH_SCHEDULE"] == "0 */5 * * * *" &&
+      azurerm_linux_function_app.worker[0].app_settings["INVENTORY_MAX_AGE_SECONDS"] == "900" &&
+      azurerm_linux_function_app.worker[0].app_settings["COMMVAULT_MODE"] == "stub" &&
+      azurerm_linux_function_app.worker[0].app_settings["ENABLE_LIVE_OPERATIONS"] == "false" &&
+      !contains(keys(azurerm_linux_function_app.worker[0].app_settings), "COMMVAULT_AUTH_VALUE") &&
+      !contains(keys(azurerm_linux_function_app.worker[0].app_settings), "AzureWebJobsStorage") &&
+      length(azurerm_role_assignment.worker_secrets) == 0
+    )
+    error_message = "Functions must use Python 3.12/~4 on existing B1, host identity, production Settings validation and safe stub defaults."
+  }
+  assert {
+    condition = (
+      length(azurerm_role_assignment.web_blobs) == 2 &&
+      azurerm_role_assignment.web_blobs["requests"].role_definition_name == "Storage Blob Data Contributor" &&
+      azurerm_role_assignment.web_blobs["inventory"].role_definition_name == "Storage Blob Data Reader" &&
+      alltrue([for name, role in azurerm_role_assignment.web_blobs :
+        role.scope == azurerm_storage_container.work[name].id &&
+        role.principal_id == azurerm_linux_web_app.demo.identity[0].principal_id
+      ]) &&
+      azurerm_role_assignment.web_queue[0].role_definition_name == "Storage Queue Data Message Sender" &&
+      azurerm_role_assignment.web_queue[0].scope == azurerm_storage_queue.work["requests"].id &&
+      length(azurerm_role_assignment.worker_blobs) == 4 &&
+      alltrue([for name, role in azurerm_role_assignment.worker_blobs :
+        role.scope == azurerm_storage_container.work[name].id &&
+        role.role_definition_name == "Storage Blob Data Contributor" &&
+        role.principal_id == azurerm_linux_function_app.worker[0].identity[0].principal_id
+      ]) &&
+      length(azurerm_role_assignment.worker_queues) == 2 &&
+      alltrue([for name, role in azurerm_role_assignment.worker_queues :
+        role.scope == azurerm_storage_queue.work[name].id &&
+        role.role_definition_name == "Storage Queue Data Contributor"
+      ]) &&
+      toset(keys(azurerm_role_assignment.worker_host)) == toset(["Storage Blob Data Owner", "Storage Queue Data Contributor"]) &&
+      alltrue([for role in azurerm_role_assignment.worker_host : role.scope == azurerm_storage_account.three_tier["host"].id]) &&
+      length(azurerm_application_gateway.ingress) == 0
+    )
+    error_message = "API and worker must receive narrowly scoped work permissions and isolated host roles without enabling gateway."
+  }
+}
+
+run "queued_live_existing_apim_credentials" {
+  command = plan
+  variables {
+    enable_three_tier      = true
+    commvault_mode         = "live"
+    existing_apim_base_url = "https://existing-apim.example.com/approved-api"
+  }
+  assert {
+    condition = (
+      azurerm_linux_function_app.worker[0].app_settings["COMMVAULT_MODE"] == "live" &&
+      azurerm_linux_function_app.worker[0].app_settings["ENABLE_LIVE_OPERATIONS"] == "false" &&
+      azurerm_linux_function_app.worker[0].app_settings["COMMVAULT_BASE_URL"] == var.existing_apim_base_url &&
+      azurerm_linux_web_app.demo.app_settings["COMMVAULT_BASE_URL"] == var.existing_apim_base_url &&
+      azurerm_linux_function_app.worker[0].app_settings["COMMVAULT_AUTH_VALUE"] == "@Microsoft.KeyVault(SecretUri=https://test-vault.vault.azure.net/secrets/commvault-auth/)" &&
+      azurerm_role_assignment.worker_secrets[0].role_definition_name == "Key Vault Secrets User"
+    )
+    error_message = "Existing APIM must be an explicit live integration using only Key Vault references, not a newly provisioned APIM instance."
+  }
+}
+
+run "reject_apim_without_three_tier_live_mode" {
+  command = plan
+  variables {
+    existing_apim_base_url = "https://existing-apim.example.com/api"
+  }
+  expect_failures = [var.existing_apim_base_url]
+}
+
+run "reject_insecure_apim" {
+  command = plan
+  variables {
+    enable_three_tier      = true
+    commvault_mode         = "live"
+    existing_apim_base_url = "http://existing-apim.example.com/api"
+  }
+  expect_failures = [var.existing_apim_base_url]
+}
+
+run "reject_gateway_missing_inputs" {
+  command = plan
+  variables {
+    enable_gateway_ingress = true
+  }
+  expect_failures = [var.enable_gateway_ingress]
+}
+
+run "reject_gateway_public_network" {
+  command = plan
+  variables {
+    gateway_vnet_cidr = "8.8.0.0/16"
+  }
+  expect_failures = [var.gateway_vnet_cidr]
+}
+
+run "reject_gateway_subnet_outside_vnet" {
+  command = plan
+  variables {
+    gateway_subnet_cidr = "10.73.0.0/24"
+  }
+  expect_failures = [var.gateway_subnet_cidr]
+}
+
+run "reject_gateway_non_dns_hostname" {
+  command = plan
+  variables {
+    gateway_hostname = "https://backup.example.com"
+  }
+  expect_failures = [var.gateway_hostname]
+}
+
+run "reject_gateway_certificate_value" {
+  command = plan
+  variables {
+    gateway_certificate_secret_id = "not-a-key-vault-reference"
+  }
+  expect_failures = [var.gateway_certificate_secret_id]
+}
+
+run "gateway_https_only_and_backend_lockdown" {
+  command = plan
+  variables {
+    enable_three_tier             = true
+    enable_gateway_ingress        = true
+    gateway_hostname              = "backup.example.com"
+    gateway_certificate_secret_id = "https://existing-vault.vault.azure.net/secrets/backup-tls"
+    gateway_certificate_vault_id  = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/certificates/providers/Microsoft.KeyVault/vaults/existing-vault"
+  }
+  assert {
+    condition = (
+      length(azurerm_application_gateway.ingress) == 1 &&
+      one(azurerm_application_gateway.ingress[0].frontend_port).port == 443 &&
+      length(azurerm_application_gateway.ingress[0].frontend_port) == 1 &&
+      one(azurerm_application_gateway.ingress[0].http_listener).protocol == "Https" &&
+      one(azurerm_application_gateway.ingress[0].http_listener).require_sni &&
+      one(azurerm_application_gateway.ingress[0].backend_http_settings).protocol == "Https" &&
+      one(azurerm_application_gateway.ingress[0].backend_http_settings).pick_host_name_from_backend_address &&
+      one(azurerm_application_gateway.ingress[0].ssl_certificate).key_vault_secret_id == var.gateway_certificate_secret_id &&
+      azurerm_application_gateway.ingress[0].waf_configuration[0].firewall_mode == "Prevention" &&
+      azurerm_linux_web_app.demo.site_config[0].ip_restriction_default_action == "Deny" &&
+      !azurerm_linux_web_app.demo.site_config[0].scm_use_main_ip_restriction &&
+      azurerm_linux_web_app.demo.site_config[0].scm_ip_restriction_default_action == "Deny" &&
+      length(azurerm_linux_web_app.demo.site_config[0].scm_ip_restriction) == 0 &&
+      one(azurerm_linux_web_app.demo.site_config[0].ip_restriction).virtual_network_subnet_id == azurerm_subnet.gateway[0].id &&
+      toset([for endpoint in azurerm_subnet.gateway[0].service_endpoint : endpoint.service]) == toset(["Microsoft.Web", "Microsoft.KeyVault"]) &&
+      output.app_url == "https://backup.example.com" &&
+      contains(azuread_application.spa.single_page_application[0].redirect_uris, "https://backup.example.com/") &&
+      !contains(azuread_application.spa.single_page_application[0].redirect_uris, "https://red-button-local-test.azurewebsites.net/") &&
+      azuread_service_principal.api.app_role_assignment_required &&
+      local.operator_role_id == uuidv5("url", "https://red-button-local-test.azurewebsites.net/BackupOperator")
+    )
+    error_message = "Gateway must be TLS-only, read existing cert by identity, deny direct web/SCM ingress, and preserve Entra role identity."
+  }
+}
+
+run "reject_mismatched_certificate_vault" {
+  command = plan
+  variables {
+    enable_three_tier             = true
+    enable_gateway_ingress        = true
+    gateway_hostname              = "backup.example.com"
+    gateway_certificate_secret_id = "https://other-vault.vault.azure.net/secrets/backup-tls"
+    gateway_certificate_vault_id  = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/certificates/providers/Microsoft.KeyVault/vaults/existing-vault"
+  }
+  expect_failures = [azurerm_application_gateway.ingress[0]]
+}
+
+run "reject_unrestricted_scm_allowlist" {
+  command = plan
+  variables {
+    gateway_scm_allowed_cidrs = ["0.0.0.0/0"]
+  }
+  expect_failures = [var.gateway_scm_allowed_cidrs]
+}
+
+run "gateway_scm_explicit_deployment_egress" {
+  command = plan
+  variables {
+    enable_three_tier             = true
+    enable_gateway_ingress        = true
+    gateway_hostname              = "backup.example.com"
+    gateway_certificate_secret_id = "https://existing-vault.vault.azure.net/secrets/backup-tls"
+    gateway_certificate_vault_id  = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/certificates/providers/Microsoft.KeyVault/vaults/existing-vault"
+    gateway_scm_allowed_cidrs     = ["203.0.113.10/32"]
+  }
+  assert {
+    condition = (
+      azurerm_linux_web_app.demo.site_config[0].scm_ip_restriction_default_action == "Deny" &&
+      one(azurerm_linux_web_app.demo.site_config[0].scm_ip_restriction).ip_address == "203.0.113.10/32" &&
+      one(azurerm_linux_web_app.demo.site_config[0].scm_ip_restriction).action == "Allow" &&
+      !azurerm_linux_web_app.demo.webdeploy_publish_basic_authentication_enabled &&
+      azurerm_linux_web_app.demo.site_config[0].ip_restriction_default_action == "Deny"
+    )
+    error_message = "Explicit deployment egress must not reopen public web ingress or enable publishing passwords."
+  }
+}
+
+run "reject_ambiguous_apim_backend" {
+  command = plan
+  variables {
+    enable_three_tier      = true
+    commvault_mode         = "live"
+    existing_apim_base_url = "https://existing-apim.example.com/api"
+    commvault_base_url     = "https://commvault.example.com/api"
+  }
+  expect_failures = [var.existing_apim_base_url]
 }

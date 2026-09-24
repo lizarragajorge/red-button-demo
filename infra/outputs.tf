@@ -67,3 +67,23 @@ output "application_insights_id" {
   description = "Workspace-based Application Insights resource."
   value       = azurerm_application_insights.demo.id
 }
+
+output "worker_app_name" {
+  description = "Separate Functions deployment target; null while three-tier mode is disabled."
+  value       = try(azurerm_linux_function_app.worker[0].name, null)
+}
+
+output "work_storage_account_name" {
+  description = "Managed-identity application storage account; no connection string."
+  value       = try(azurerm_storage_account.three_tier["work"].name, null)
+}
+
+output "gateway_public_ip" {
+  description = "Optional gateway DNS A-record target. DNS and certificate readiness must be verified separately."
+  value       = try(azurerm_public_ip.gateway[0].ip_address, null)
+}
+
+output "existing_apim_base_url" {
+  description = "Configured integration target only; this module does not create or verify APIM APIs, policies or backend routes."
+  value       = var.existing_apim_base_url == "" ? null : var.existing_apim_base_url
+}

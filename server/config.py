@@ -21,6 +21,11 @@ class Settings(BaseModel):
     commvault_base_url: str = Field("", alias="COMMVAULT_BASE_URL")
     commvault_auth_header: Literal["Authorization", "Authtoken"] = Field("Authorization", alias="COMMVAULT_AUTH_HEADER")
     commvault_auth_value: str = Field("", alias="COMMVAULT_AUTH_VALUE", repr=False)
+    execution_mode: Literal["sync", "queued"] = Field("sync", alias="EXECUTION_MODE")
+    storage_account_name: str = Field("", alias="STORAGE_ACCOUNT_NAME", pattern=r"^$|^[a-z0-9]{3,24}$")
+    storage_connection_string: str = Field("", alias="AZURE_STORAGE_CONNECTION_STRING", repr=False)
+    inventory_max_age_seconds: int = Field(900, alias="INVENTORY_MAX_AGE_SECONDS", ge=1)
+    inventory_refresh_schedule: str = Field("0 */5 * * * *", alias="INVENTORY_REFRESH_SCHEDULE")
 
     @field_validator("display_name")
     @classmethod
@@ -51,6 +56,17 @@ class Settings(BaseModel):
 
     @model_validator(mode="after")
     def validate_configuration(self):
+        if self.storage_connection_string:
+            if self.environment == "production":
+                raise ValueError("Production storage requires managed identity.")
+            # Connection strings are only for a loopback emulator, never account keys in Azure.
+            if self.storage_connection_string != "UseDevelopmentStorage=true":
+                parts = dict(part.split("=", 1) for part in self.storage_connection_string.split(";") if "=" in part)
+                if any(
+                    urlsplit(parts.get(name, "")).hostname not in ("localhost", "127.0.0.1", "::1")
+                    for name in ("BlobEndpoint", "QueueEndpoint")
+                ) or parts.get("DefaultEndpointsProtocol", "http") not in ("http", "https"):
+                    raise ValueError("Storage connection strings are restricted to a local emulator.")
         for value in (self.tenant_id, self.api_client_id, self.spa_client_id):
             if value:
                 UUID(value)

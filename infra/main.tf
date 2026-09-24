@@ -47,6 +47,7 @@ resource "azurerm_service_plan" "demo" {
 }
 
 resource "azurerm_linux_web_app" "demo" {
+  depends_on                                     = [azurerm_application_gateway.ingress]
   name                                           = var.app_name
   location                                       = azurerm_service_plan.demo.location
   resource_group_name                            = azurerm_resource_group.demo.name
@@ -61,12 +62,35 @@ resource "azurerm_linux_web_app" "demo" {
   }
 
   site_config {
-    always_on               = true
-    minimum_tls_version     = "1.2"
-    scm_minimum_tls_version = "1.2"
-    ftps_state              = "Disabled"
-    http2_enabled           = true
-    app_command_line        = "python -m server"
+    always_on                         = true
+    minimum_tls_version               = "1.2"
+    scm_minimum_tls_version           = "1.2"
+    ftps_state                        = "Disabled"
+    http2_enabled                     = true
+    app_command_line                  = "python -m server"
+    ip_restriction_default_action     = var.enable_gateway_ingress ? "Deny" : "Allow"
+    scm_use_main_ip_restriction       = false
+    scm_ip_restriction_default_action = var.enable_gateway_ingress ? "Deny" : "Allow"
+
+    dynamic "scm_ip_restriction" {
+      for_each = var.enable_gateway_ingress ? var.gateway_scm_allowed_cidrs : toset([])
+      content {
+        name       = "ApprovedDeployment-${replace(scm_ip_restriction.value, "/", "-")}"
+        priority   = 100
+        action     = "Allow"
+        ip_address = scm_ip_restriction.value
+      }
+    }
+
+    dynamic "ip_restriction" {
+      for_each = var.enable_gateway_ingress ? [1] : []
+      content {
+        name                      = "ApplicationGatewaySubnet"
+        priority                  = 100
+        action                    = "Allow"
+        virtual_network_subnet_id = azurerm_subnet.gateway[0].id
+      }
+    }
 
     application_stack {
       python_version = "3.12"
@@ -85,13 +109,16 @@ resource "azurerm_linux_web_app" "demo" {
     APP_DISPLAY_NAME                      = trimspace(var.display_name)
     SUPPORT_URL                           = var.support_url
     COMMVAULT_MODE                        = var.commvault_mode
-    COMMVAULT_BASE_URL                    = var.commvault_base_url
+    COMMVAULT_BASE_URL                    = local.commvault_url
     COMMVAULT_AUTH_HEADER                 = var.commvault_auth_header
     ENABLE_LIVE_OPERATIONS                = tostring(var.enable_live_operations)
     SCM_DO_BUILD_DURING_DEPLOYMENT        = "false"
     APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.demo.connection_string
     }, var.commvault_mode == "live" ? {
     COMMVAULT_AUTH_VALUE = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.demo.vault_uri}secrets/${var.commvault_secret_name}/)"
+    } : {}, var.enable_three_tier ? {
+    EXECUTION_MODE       = "queued"
+    STORAGE_ACCOUNT_NAME = azurerm_storage_account.three_tier["work"].name
   } : {})
 
   logs {
@@ -108,7 +135,7 @@ resource "azurerm_linux_web_app" "demo" {
 
   lifecycle {
     precondition {
-      condition     = var.commvault_mode != "live" || var.commvault_base_url != ""
+      condition     = var.commvault_mode != "live" || local.commvault_url != ""
       error_message = "Live mode requires commvault_base_url including its API path prefix."
     }
     precondition {

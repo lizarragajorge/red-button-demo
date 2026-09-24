@@ -66,6 +66,136 @@ Network-private production deployments require a separate design
 for VNet integration, private endpoints, DNS, and deployment ingress. Do not simply
 disable vault networking: App Service must be able to resolve its references.
 
+## Opt-in queued three-tier mode (not deployed by these changes)
+
+`enable_three_tier = false` and `enable_gateway_ingress = false` preserve the
+existing synchronous hosted demo. Neither storage, Functions, a gateway, nor
+queued-mode settings are introduced until explicitly enabled. These additions
+were validated locally with provider mocks, **not applied or deployed to Azure**.
+
+With `enable_three_tier = true`:
+
+- The existing web app gets `EXECUTION_MODE=queued` and `STORAGE_ACCOUNT_NAME`.
+  Its system-assigned identity can read/write request blobs, read inventory, and
+  send messages to the `requests` queue; it cannot consume that queue.
+- One Standard LRS StorageV2 **work** account contains private Blob containers
+  `requests`, `inventory`, `coordination`, `stub-state` and queues `requests`,
+  `requests-poison`. Public blob access and shared-key authentication are disabled;
+  HTTPS/TLS 1.2 and OAuth defaults are enabled. AzureRM 5.6 resources use ARM
+  container/queue IDs, so initial creation does not wait for the application's
+  data-plane RBAC propagation. The endpoints remain public **authenticated**
+  endpoints, not private endpoints: private containers do not mean private networking.
+- A separate **host** storage account isolates Functions host leases/receipts.
+  Host account-level `Storage Blob Data Owner` and `Storage Queue Data Contributor`
+  do not grant access to application data. No account-management role is assigned
+  to the worker. Work permissions are scoped to each container and queue:
+  `Storage Blob Data Contributor` on the four containers and `Storage Queue Data
+  Contributor` on both queues. The latter supports triggers, retries and poison
+  enqueue/dequeue. Built-in Blob Contributor includes read/delete as well as
+  inventory write; custom write-only role definitions are not managed here.
+- A Python 3.12 Linux Function App, Functions runtime `~4`, shares the existing
+  dedicated B1 Linux plan with Always On. There is **no additional Premium or
+  Consumption plan**. Web and worker share the B1 CPU/memory budget; capacity,
+  execution throughput and failure isolation must be load-tested before production.
+  Queue, timer and poison handlers come from root `function_app.py` and `host.json`;
+  Terraform configures infrastructure, not their deployment.
+- Host storage uses `storage_uses_managed_identity=true`,
+  `AzureWebJobsStorage__accountName` and `AzureWebJobsStorage__credential`.
+  Queue bindings use `WORK_STORAGE__queueServiceUri` plus managed identity.
+  `APP_ENV=production`, `PUBLIC_ORIGIN` and all three `ENTRA_*` IDs satisfy the
+  shared application Settings validation; they are public identifiers, not
+  credentials. Inventory refresh runs at `0 */5 * * * *` (UTC), with maximum
+  age `900` seconds. Runtime queue bindings require the extension bundle declared
+  in `host.json`; allow its documented outbound download endpoints.
+- Worker and web share `COMMVAULT_MODE`, the effective HTTPS base URL, auth
+  header and `ENABLE_LIVE_OPERATIONS`. Stub mode injects no Commvault credential.
+  Only live mode adds the worker's Key Vault Secrets User grant and a versionless
+  `@Microsoft.KeyVault(...)` reference. Existing default web-vault RBAC is retained.
+  No secret value or storage connection string is passed to either application.
+
+AzureRM storage accounts expose sensitive computed key/connection-string
+attributes. Even with shared-key authentication disabled and no key references
+in app configuration, **do not claim Terraform state is secret-free**: provider
+refresh may persist computed credentials. Protect state/backups with encryption
+and restricted access; never publish or package them. This configuration does
+not read certificate or Commvault secret values. No local tfvars/state is edited
+as part of this feature.
+
+RBAC assignments can exist before Azure data-plane authorization propagates.
+After an authorized apply, wait for effective identity access, deploy the worker,
+confirm queue and timer indexing, and wait for a successful inventory refresh
+before allowing operators to use queued mode. Verify poison handling, duplicate
+delivery/idempotency, restart recovery and stale-inventory behavior in a separate
+test environment. Mock Terraform tests do not prove those Azure behaviors.
+`Microsoft.Storage` must be registered by an authorized administrator.
+
+### Existing APIM integration, not a new APIM deployment
+
+`existing_apim_base_url` accepts an existing HTTPS DNS URL and optional API path.
+It requires three-tier **live** mode and an empty `commvault_base_url`, avoiding
+ambiguous routing. It becomes `COMMVAULT_BASE_URL` for web and worker. It does not
+enable live operations automatically; the separate live gate still applies.
+
+No paid APIM instance, API definition, policy, backend, subscription key or stub
+host is created. An operator must supply and verify the existing APIM routes,
+authentication/authorization policy, network reachability, TLS trust, credential
+forwarding and backend contract. The application's demonstrated paths/envelopes
+are **not verified Commvault product API names**. Do not point at production until
+the actual Commvault version/API contract is verified. The built-in stub remains
+private in-process code; routing APIM to a separately hosted stub requires a
+separate secured deployment and integration. A configured URL or a passing plan
+is not evidence of a working APIM route.
+
+### Optional HTTPS-only gateway ingress
+
+`enable_gateway_ingress=true` additionally requires three-tier mode,
+`gateway_hostname`, a versionless existing `gateway_certificate_secret_id`, and
+its matching `gateway_certificate_vault_id`. The vault must use RBAC and contain
+an enabled, unexpired, exportable PFX certificate with the hostname in its SAN.
+The secret URI is referenced directly, never read into Terraform. The
+gateway's user-assigned identity receives Key Vault Secrets User on that existing
+vault. Approve its network path (including vault firewall/trusted-service rules)
+and allow RBAC propagation before expecting TLS readiness.
+
+The actual gated resources are a dedicated RFC1918 VNet, validated contained /24
+subnet, NSG, Standard static public IP and **WAF_v2 Application Gateway**. The only
+public listener is HTTPS 443 with SNI and a TLS 1.2+ policy; there is no public
+HTTP listener. WAF runs in Prevention mode. Backend TLS uses the existing
+`<app-name>.azurewebsites.net` hostname and `/api/health` probe. Microsoft.Web
+service endpoints identify the gateway subnet to App Service access restrictions;
+direct web ingress is denied. These are not private endpoints.
+
+Gateway creation is a dependency of the web app update, so a failed gateway
+provisioning operation does not deliberately open an insecure fallback or apply
+new restrictions first. Successful provisioning is still **not** proof of correct
+DNS, healthy probes or TLS, and a partial apply can interrupt availability.
+Schedule a maintenance window and stage tested artifacts first. Set the public
+DNS A record to `gateway_public_ip`; Terraform does not manage DNS records.
+`PUBLIC_ORIGIN` and the SPA redirect URI change to the gateway hostname.
+Entra validation and BackupOperator authorization remain enabled; existing scope
+and role UUIDs stay stable when switching origins.
+
+SCM/deployment ingress is separately denied by default in gateway mode. Supply
+only approved fixed deployment egress addresses in `gateway_scm_allowed_cidrs`
+(`/24`–`/32`, preferably `/32`) before needing web zip updates. No gateway route
+exposes SCM; Entra deployment authorization and disabled publishing passwords
+remain in force. The worker has no HTTP business trigger; its public HTTPS/SCM
+management surface remains protected by Azure authorization, not by this gateway.
+Private worker/deployment ingress is a separate network design.
+
+CIDR syntax, canonical ranges, containment, required inputs and matching vault
+names are checked locally. Existing VNet overlap, certificate validity, vault
+network/RBAC readiness, DNS, quotas, WAF compatibility and real backend access
+restrictions cannot be proved by mocks. Validate public gateway success and
+direct App Service rejection before declaring ingress complete.
+`Microsoft.Network` must be registered separately.
+
+Costs: the worker shares B1 rather than adding a compute SKU, but adds two LRS
+accounts, transactions/capacity, Function telemetry and potentially egress.
+The opt-in WAF_v2 gateway and Standard public IP add substantial ongoing charges
+even when idle. Reusing existing APIM does not create a new instance, but its
+existing tier/capacity and request costs still apply. Nothing is cost-free.
+
 ## Tools, credentials, and permissions
 
 Use Terraform >=1.9 and <2.0 and a recent Azure CLI. Provider patch versions are
@@ -451,7 +581,7 @@ source allowlist accordingly; do not copy the entire working tree.
 
 This process does not mutate source/dependencies or reuse stale `dist/`.
 **Python packaging validation status (September 23, 2026): Linux archive build
-and extracted-archive runtime smoke test passed.** The 21 pinned dependencies
+and extracted-archive runtime smoke test passed.** The 42 pinned dependencies
 were downloaded as CPython 3.12-compatible Linux/universal wheels through the
 workstation's configured Microsoft Python feed,
 `https://packagefeedproxy.microsoft.io/pypi/simple/`, with TLS verification enabled.
@@ -481,7 +611,7 @@ This still requires all import, dependency, and extracted-archive runtime checks
 to execute on Linux. Do not copy workstation credentials or CA bundles into the
 deployment ZIP.
 
-The resulting zip must have exactly four top-level entries: `dist/`, `server/`,
+The resulting **web** zip must have exactly four top-level entries: `dist/`, `server/`,
 `requirements.txt`, and `.python_packages/`, with no enclosing directory. It must
 contain no `.env`, npm/pip configuration, CA bundles, Terraform files/state,
 project tests, old JavaScript server files, npm manifests, `node_modules`,
@@ -531,6 +661,48 @@ a successful Terraform apply alone as a healthy application deployment.
 For local development only, `python -m server --reload` uses the loopback
 development binding. Do not enable reload or change `APP_ENV` to development on
 App Service.
+
+### Separate Function artifact for three-tier mode
+
+Do not upload the web zip to the worker, or the worker zip to the web app.
+Build the worker on the same approved Linux x86_64/Python 3.12 builder with
+dependencies installed from root `requirements.txt` into
+`.python_packages/lib/site-packages`. Use a new project-local staging directory,
+not an existing deployment directory. The Function zip root must contain exactly:
+
+```text
+function_app.py
+host.json
+server/
+requirements.txt
+.python_packages/
+```
+
+Copy all required `server/` runtime Python modules/data (including nested packages
+when introduced), excluding tests, bytecode and local configuration. `dist/` is
+only needed for the web zip. Never package `.env`, `local.settings.json`, local
+credentials, Azure CLI caches, feed configuration, Terraform/state/tfvars, test
+fixtures or development dependencies in either artifact. Do not change the worker
+startup to `python -m server`; Functions discovers the Python v2 decorators in
+root `function_app.py` and uses root `host.json`. Remote build is disabled.
+
+Validate the extracted Function archive on the matching Linux runtime:
+import `function_app` using extracted dependencies, check `host.json` and verify
+that the queue, inventory timer and poison queue functions index with Azure
+Functions Core Tools v4 in an isolated test environment. Host extension startup
+may require approved outbound access; never use production queue data for local
+tests. A Python import or Terraform mock alone is not a Functions-host smoke test.
+Record both artifact hashes. After separate authorized provisioning, deploy the
+worker archive to output `worker_app_name` using an approved Entra-authenticated
+Functions zip deployment workflow (not publishing passwords). Deployment is a
+separate cloud write; none is performed by the Terraform validation commands.
+
+Deploy/test worker handling and inventory readiness before routing traffic to a
+queued web artifact. Verify actual Azure managed-identity access and Key Vault
+reference resolution after propagation. If gateway mode is enabled, ensure the
+web deployer's fixed public egress is in `gateway_scm_allowed_cidrs`; an empty
+allowlist intentionally blocks SCM deployment access. Keep the previously
+validated synchronous web artifact and reviewed Terraform settings for rollback.
 
 The server provides public MSAL configuration at runtime from its `ENTRA_*` and
 `PUBLIC_ORIGIN` settings; never put credentials in `VITE_*` variables. Outputs

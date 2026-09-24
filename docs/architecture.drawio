@@ -1,5 +1,5 @@
 <mxfile host="app.diagrams.net" version="24.7.17">
-  <diagram name="Red Button - reference Azure architecture" id="red-button-azure">
+  <diagram name="Default synchronous architecture" id="red-button-azure">
     <mxGraphModel dx="1422" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1100" math="0" shadow="0">
       <root>
         <mxCell id="0"/>
@@ -24,6 +24,40 @@
         <mxCell id="vault-edge" value="Key Vault reference" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;dashed=1;" edge="1" parent="1" source="vault" target="backend"><mxGeometry relative="1" as="geometry"/></mxCell>
         <mxCell id="audit-edge" value="Structured audit logs" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;" edge="1" parent="1" source="backend" target="monitor"><mxGeometry relative="1" as="geometry"/></mxCell>
         <mxCell id="infra-edge" value="Provision / configure" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;dashed=1;" edge="1" parent="1" source="terraform" target="azure"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="Opt-in queued architecture" id="red-button-queued">
+    <mxGraphModel dx="1422" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="RED BUTTON | Opt-in queued execution&#xa;Default synchronous deployment remains unchanged" style="text;html=0;align=left;fontSize=24;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="40" y="20" width="1320" height="70" as="geometry"/></mxCell>
+        <mxCell id="browser" value="Operator browser + MSAL&#xa;Typed confirmation / UUID idempotency key&#xa;Poll or resume own saved request" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;" vertex="1" parent="1"><mxGeometry x="40" y="120" width="320" height="100" as="geometry"/></mxCell>
+        <mxCell id="entra" value="Microsoft Entra ID&#xa;Delegated scope + BackupOperator&#xa;No authentication bypass" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=14;" vertex="1" parent="1"><mxGeometry x="520" y="120" width="300" height="100" as="geometry"/></mxCell>
+        <mxCell id="gateway" value="Optional Application Gateway&#xa;TLS / hostname / subnet / ingress restrictions&#xa;Opt-in; deployment validation required" style="rounded=1;whiteSpace=wrap;html=0;dashed=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=14;" vertex="1" parent="1"><mxGeometry x="1000" y="120" width="400" height="100" as="geometry"/></mxCell>
+        <mxCell id="api" value="App Service: web UI + FastAPI&#xa;JWT validation / role / live gate&#xa;POST /api/disable returns 202&#xa;GET /api/requests/{id}: owner only&#xa;GET /api/servers: cached inventory" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;" vertex="1" parent="1"><mxGeometry x="40" y="310" width="320" height="160" as="geometry"/></mxCell>
+        <mxCell id="blob" value="Azure Blob storage&#xa;requests: durable status + intent&#xa;inventory: last good snapshot + freshness&#xa;coordination: leases / exclusion&#xa;stub-state: shared simulated state" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=14;" vertex="1" parent="1"><mxGeometry x="520" y="310" width="350" height="160" as="geometry"/></mxCell>
+        <mxCell id="queue" value="Storage Queues&#xa;requests / requests-poison&#xa;At-least-once delivery, not exactly once" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=14;" vertex="1" parent="1"><mxGeometry x="40" y="570" width="320" height="100" as="geometry"/></mxCell>
+        <mxCell id="worker" value="Python Functions: queue + poison triggers&#xa;Persist intent before mutation&#xa;Recheck mode / live gate / deadline&#xa;No blind replay of ambiguous writes" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;" vertex="1" parent="1"><mxGeometry x="520" y="550" width="350" height="140" as="geometry"/></mxCell>
+        <mxCell id="timer" value="Python Function: inventory timer&#xa;Same Commvault HTTP adapter&#xa;Keep last good cache on refresh failure" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;" vertex="1" parent="1"><mxGeometry x="1040" y="340" width="360" height="110" as="geometry"/></mxCell>
+        <mxCell id="adapter" value="Shared Commvault adapter&#xa;GET /V4/Servers&#xa;PUT /V4/Server/{id}/Backup/Action/Disable&#xa;No invented upstream submit/status APIs" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" vertex="1" parent="1"><mxGeometry x="1040" y="560" width="360" height="130" as="geometry"/></mxCell>
+        <mxCell id="stub" value="DEMO: private ASGI HTTP stub&#xa;Blob-backed shared simulated state&#xa;No public listener; does not traverse APIM" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=14;" vertex="1" parent="1"><mxGeometry x="520" y="810" width="350" height="110" as="geometry"/></mxCell>
+        <mxCell id="apim" value="Optional approved live integration&#xa;Existing APIM -&gt; client Commvault API&#xa;Routes, credentials, network path must be confirmed&#xa;No APIM instance or remote stub provisioned" style="rounded=1;whiteSpace=wrap;html=0;dashed=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=14;" vertex="1" parent="1"><mxGeometry x="1040" y="800" width="360" height="130" as="geometry"/></mxCell>
+        <mxCell id="note" value="Terraform / managed identities / monitoring&#xa;Solid paths: queued implementation. Dashed: deployment-dependent integration.&#xa;Status is command outcome, not current backup state. Unknown outcomes require reconciliation.&#xa;Storage RBAC, Function deployment and optional gateway need target-environment validation." style="text;whiteSpace=wrap;html=0;align=left;fontSize=14;" vertex="1" parent="1"><mxGeometry x="40" y="970" width="1360" height="100" as="geometry"/></mxCell>
+        <mxCell id="auth" value="MSAL / PKCE" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;" edge="1" parent="1" source="browser" target="entra"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="https" value="HTTPS + access token" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;" edge="1" parent="1" source="browser" target="api"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="ingress" value="Optional ingress replaces direct browser route" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;dashed=1;" edge="1" parent="1" source="gateway" target="api"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="persist" value="Persist first / read inventory and status" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;" edge="1" parent="1" source="api" target="blob"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="enqueue" value="Then enqueue request reference" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;" edge="1" parent="1" source="api" target="queue"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="trigger" value="Queue triggers" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;" edge="1" parent="1" source="queue" target="worker"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="status" value="Leases / intent / outcome" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;" edge="1" parent="1" source="worker" target="blob"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="cache" value="Publish inventory / refresh error" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;" edge="1" parent="1" source="timer" target="blob"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="read" value="Read inventory" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;" edge="1" parent="1" source="timer" target="adapter"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="write" value="Disable selected targets" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;" edge="1" parent="1" source="worker" target="adapter"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="simulate" value="stub mode" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;" edge="1" parent="1" source="adapter" target="stub"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="shared" value="Persist simulated changes" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;" edge="1" parent="1" source="stub" target="blob"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="live" value="live mode / explicit write gate / Key Vault credential" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;dashed=1;" edge="1" parent="1" source="adapter" target="apim"><mxGeometry relative="1" as="geometry"/></mxCell>
       </root>
     </mxGraphModel>
   </diagram>

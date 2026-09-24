@@ -1,3 +1,4 @@
+import asyncio
 from typing import TypeVar
 
 import httpx
@@ -6,6 +7,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 from .models import ActionResult, DelayOptions, ServerId, ServerList
 
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
+UPSTREAM_TOTAL_TIMEOUT_SECONDS = 15
 
 
 class CommvaultError(Exception):
@@ -27,12 +29,14 @@ class CommvaultClient:
         # Relative endpoint paths retain customer-managed prefixes such as /commandcenter/api/.
         url = self.base_url + path
         try:
-            response = await self.http.request(
-                method, url, params=query,
-                headers={"Accept": "application/json", self.auth_header: self.auth_value},
-                follow_redirects=False, timeout=15,
-            )
-        except httpx.RequestError:
+            # HTTPX's phase timeouts alone do not bound a slow streaming response.
+            async with asyncio.timeout(UPSTREAM_TOTAL_TIMEOUT_SECONDS):
+                response = await self.http.request(
+                    method, url, params=query,
+                    headers={"Accept": "application/json", self.auth_header: self.auth_value},
+                    follow_redirects=False, timeout=UPSTREAM_TOTAL_TIMEOUT_SECONDS,
+                )
+        except (httpx.RequestError, TimeoutError):
             raise CommvaultError(
                 "Commvault request failed or timed out. The outcome may be unknown; check before retrying.",
                 "TRANSPORT_ERROR",

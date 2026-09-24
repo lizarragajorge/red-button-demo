@@ -1,7 +1,7 @@
 locals {
-  app_url          = "https://${var.app_name}.azurewebsites.net"
-  scope_id         = uuidv5("url", "${local.app_url}/access_as_user")
-  operator_role_id = uuidv5("url", "${local.app_url}/BackupOperator")
+  app_url          = var.enable_gateway_ingress ? "https://${var.gateway_hostname}" : "https://${var.app_name}.azurewebsites.net"
+  scope_id         = uuidv5("url", "https://${var.app_name}.azurewebsites.net/access_as_user")
+  operator_role_id = uuidv5("url", "https://${var.app_name}.azurewebsites.net/BackupOperator")
   tags             = merge({ application = "red-button-demo", managed_by = "terraform" }, var.tags)
 }
 

@@ -29,3 +29,5 @@ __pycache__/
 .coverage
 htmlcov/
 .python_packages/
+/release.json
+/releases/

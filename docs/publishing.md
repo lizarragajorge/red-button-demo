@@ -1,97 +1,99 @@
-# Publishing and sharing the demo
+# Publishing and handoff
 
-## Audience and release scope
+The [README](../README.md) is the starting point. Share a verified reference demo,
+not a claim of production readiness or untested Commvault compatibility.
 
-This repository is a reference demo for authorized users with access to the
-required package feeds and an Entra tenant. It is not an anonymous public
-playground, a production incident-response system, or a complete Commvault
-emulator. Keep the simulated environment and operational safeguards explicit.
+## Keep source changes separate from deployment
 
-Public source access does not grant access to a hosted deployment. Each operator
-needs approved home-tenant/guest access or an explicitly allowlisted organizational
-tenant, and the required consent and app access. By default these users can
-operate the simulator. Live or restricted-demo operations additionally require
-the API's `BackupOperator` role; demo access does not grant real backup privileges.
-Do not publish invitations, credentials, tokens, server inventories, or
-screenshots containing real client information.
+Template improvements do not require deploying to the maintained demo, applying
+Terraform, changing tenant access, or migrating state. Work on a review branch;
+preserve the environment's local variables, state, backend, and feed selection.
+Any later rollout is a separate authorized change.
 
-## Approval and licensing
+Receiving teams use fresh clones and their own resources, registrations, and
+state. They do not inherit the originating team's local configuration or access
+allowlist. Public source does not grant access to the hosted app.
 
-The project uses the [MIT License](../LICENSE), with a copyright notice for
-the Red Button demo contributors. Before making a repository public, confirm
-the appropriate rights holder and approval to disclose the source and
-internal-feed references. Review third-party dependency license/notice
-obligations separately; the project license does not relicense its dependencies.
-Retain the MIT copyright and permission notices when redistributing the source.
-The npm manifest's `private` flag prevents npm publication; it does not control
-GitHub visibility.
+## Before publishing source
 
-## Review the exact Git snapshot
+- Confirm the rights holder, disclosure approval, and permission to disclose
+  internal-feed references. The [MIT License](../LICENSE) does not itself
+  establish organizational approval; retain its notices and review dependency
+  license/notice obligations separately.
+- Review the exact source snapshot and publishable history. Never upload the
+  whole working directory: it can contain credentials, state, actual variables,
+  build artifacts, and private package-manager configuration.
+- Run `python scripts/check_publication.py` against the intended Git index,
+  inspect the staged diff, and run a redacted Gitleaks scan on candidate files
+  and history. `.gitignore` does not remove anything already committed.
+- Run tests, dependency-advisory checks, and the matching Linux package smoke
+  checks. `python scripts/audit_dependencies.py` sends public package names and
+  versions to OSV, not source or tenant data; a failed lookup is not a clean scan.
+- Do not publish real inventories, client screenshots, invitations, operational
+  logs, receipts containing environment details, credentials, or state.
+- Start private and get approval before changing visibility. If a secret was
+  exposed, rotate/revoke it and follow incident procedures; deleting the latest
+  copy is insufficient. See [security reporting](../SECURITY.md).
 
-Never upload the working directory as an archive. It can contain local `.env`,
-Terraform state and backups, account-specific tfvars, package-manager settings,
-and build outputs that must not be published.
+## CI and versioned releases
 
-1. Initialize a local Git repository on `main` if one does not already exist.
-2. Stage only source, tests, documentation, examples, lockfiles, and CI files.
-3. Run `python scripts/check_publication.py` to reject prohibited indexed paths,
-   symlinks and merge-conflict stages. The check reads index metadata, not local
-   credentials.
-4. Inspect `git diff --cached --stat` and `git diff --cached --check`, then review
-   the staged diff. Run a current Gitleaks scan with redaction on the staged
-   snapshot and, after committing, on all history.
-5. Verify that `.env`, `infra/terraform.tfvars`, `infra/terraform.tfstate` and
-   its backups remain ignored and untracked. Preserve them locally; do not
-   delete state needed to manage deployed resources.
-6. Review dependency advisories with `python scripts/audit_dependencies.py`.
-   It sends only public package names and versions to the OSV API, not source,
-   configuration, tokens, or tenant information. Lookup failures fail the check.
-7. Select an approved GitHub owner and repository name. Start **private**, review
-   the first commit, and get approval before changing visibility.
+[The validation workflow](../.github/workflows/validate.yml) uses pinned actions,
+read-only permissions, and no Azure credentials or deployment. It requires the
+selected approved feeds, Playwright downloads, Terraform provider downloads,
+and advisory endpoints. See [feed setup](package-feeds.md).
 
-An ignore file cannot remove a secret already committed. If a secret is exposed,
-revoke or rotate it and follow incident procedures; deleting it in a later
-commit is not sufficient. See [security reporting](../SECURITY.md).
+Use an approved isolated runner. Never expose organizational credentials or
+network access to untrusted forks. Inaccessible feeds and disabled hosted
+runners must fail visibly; do not bypass policy or claim a local test as a
+successful remote CI run.
 
-## Continuous integration
+After approval and successful checks, tag the verified source and retain the
+release manifest, package hashes, tested toolchain, limitations, and rollback
+instructions in the approved artifact store. The package manifest's version
+alone is not a verified release. No tag, GitHub release, visibility change, or
+deployment is automatically created by these instructions.
 
-[The workflow](../.github/workflows/validate.yml) uses ephemeral GitHub-hosted
-Ubuntu runners, immutable action revisions, read-only repository permissions,
-and no Azure credentials or automatic deployment. It does not use
-`pull_request_target` or run untrusted pull requests on a corporate self-hosted
-runner. Git checkout credentials are not persisted.
+## Handoff checklist
 
-The validation job requires access to:
+Complete this in the receiving organization's environment:
 
-- Microsoft's npm feed configured in [`.npmrc`](../.npmrc), with no public npm
-  fallback. Dependency lifecycle scripts are disabled.
-- The approved Python feed at `https://packagefeedproxy.microsoft.io/pypi/simple/`.
-- Official Playwright browser downloads and signed Terraform provider downloads.
-- The OSV API for advisory metadata.
+- [ ] Confirm subscription/tenant, Azure and Graph permissions, own state and
+      names, region capacity, package feeds, and the selected networking recipe.
+- [ ] Review the Terraform plan. Keep stub mode, live writes off, and
+      single-tenant access unless external organizations are deliberately enabled.
+- [ ] Build the matching Linux packages and retain provenance/hashes. Deploy
+      explicitly; verify the intended running release and assets, not only ZIP
+      upload success or an old healthy process.
+- [ ] Complete real MSAL sign-in with an admitted user **without**
+      `BackupOperator`; confirm full simulator access. Test silent renewal and
+      the registered `/auth/silent` callback.
+- [ ] Verify anonymous denial. If multi-tenant access is enabled, verify actual
+      external consent/sign-in and denial for an unapproved tenant.
+- [ ] Cancel the review dialog, then submit a typed-confirmed synthetic request.
+      Check outcomes and requested schedule; acceptance is not recovery proof.
+- [ ] If restricting simulator access, verify read-only behavior without the
+      operator role and successful operation with the role.
+- [ ] For queued mode, verify both packages, the fresh worker host and three
+      functions, managed-identity storage access, inventory freshness, request
+      completion/recovery, and rejection of another user's lookup. A web receipt
+      does not prove worker or queue success.
+- [ ] Confirm private DNS/networking where selected, disabled shared storage
+      keys/anonymous access, and no secrets in packages or frontend assets.
+- [ ] Assign owners for access, updates, costs, retention, alerts, unknown-outcome
+      reconciliation, rollback, support, and teardown.
 
-The workflow contains no feed credentials. If your feed requires authentication
-or private networking, configure an approved isolated CI environment before
-enabling it. Do not expose organizational tokens or network access to forked
-pull requests. Inaccessible feeds must fail visibly, not fall back to another
-registry or skip validation. No passing remote CI run is implied by committing
-the workflow; verify its first run after the private push.
+Record results, source revision, and exceptions in the organization's approved
+system, not as customer data in the public template. Local/mock tests do not
+replace these hosted checks.
 
-Checks cover source publication boundaries, Gitleaks, pinned runtime and locked
-npm advisories, Python tests, JavaScript syntax, frontend build, browser tests,
-and Terraform format/validation/mock tests. Advisory absence is not a security
-guarantee, and mock tests are not cloud integration tests.
+## Before real backup operations
 
-## Before sharing a deployment
+Require separate compatibility and operational approval: exact API version,
+paths/envelopes, auth, network routing, read-only inventory, target limits,
+change windows, monitoring, incident response, and verified re-enable behavior.
+APIM configuration is not evidence that the in-process simulator traverses it.
 
-Complete a hosted sign-in as an assigned operator, exercise a simulated request,
-and verify signed-in users can exercise the default simulator while anonymous
-users cannot. In live or restricted-demo mode, verify users without
-`BackupOperator` cannot submit operations. If multi-tenant
-access is enabled, also verify an unapproved tenant is rejected and confirm each
-approved organization's consent/access policies. Keep `COMMVAULT_MODE=stub` and
-`ENABLE_LIVE_OPERATIONS=false`. Decide who may access logs and copy support
-details. Review cost and cleanup instructions in the
-[infrastructure guide](infrastructure.md#costs-checks-and-cleanup).
-
-The B1 plan is billable even when the web app is stopped. Keep Terraform state
-protected and retained until authorized teardown is complete.
+Live writes require `BackupOperator` plus the explicit enablement gate. The
+simulator's default access never grants these privileges. Establish a procedure
+for ambiguous outcomes; do not blindly replay writes or delete coordination
+records. Code rollback does not undo upstream actions or stored requests.

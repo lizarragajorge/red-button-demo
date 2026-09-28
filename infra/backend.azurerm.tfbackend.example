@@ -1,0 +1,8 @@
+resource_group_name  = "replace-with-state-resource-group"
+storage_account_name = "replacestateaccount"
+container_name       = "tfstate"
+key                  = "red-button/dev/terraform.tfstate"
+subscription_id      = "00000000-0000-0000-0000-000000000000"
+tenant_id            = "00000000-0000-0000-0000-000000000000"
+use_azuread_auth     = true
+use_cli              = true

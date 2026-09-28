@@ -25,6 +25,20 @@ from .runtime import upstream_client
 from .storage import AzureRepository, Repository, StorageUnavailable
 
 DIST = Path(__file__).resolve().parent.parent / "dist"
+RELEASE_MARKER = Path(__file__).resolve().parent.parent / "release.json"
+
+
+def load_release_id() -> str | None:
+    if not RELEASE_MARKER.exists():
+        return None
+    try:
+        marker = json.loads(RELEASE_MARKER.read_bytes())
+        release_id = marker["releaseId"]
+        if str(UUID(release_id)) != release_id or not re.fullmatch(r"[0-9a-f]{64}", marker["sourceSha256"]):
+            raise ValueError
+        return release_id
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        raise RuntimeError("Packaged release.json is malformed; refusing ambiguous release identity.") from None
 
 
 def write_audit(entry: dict):
@@ -38,6 +52,7 @@ def create_app(
     audit: Callable[[dict], None] = write_audit,
     repository: Repository | None = None,
 ) -> FastAPI:
+    release_id = load_release_id()
     verifier = verifier or EntraTokenVerifier(settings)
     active_servers: set[int] = set()
 
@@ -148,6 +163,7 @@ def create_app(
     @app.get("/api/config")
     async def public_config():
         return {
+            **({"releaseId": release_id} if release_id is not None else {}),
             "displayName": settings.display_name,
             "supportUrl": settings.support_url,
             "mode": settings.mode,

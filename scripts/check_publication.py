@@ -20,6 +20,8 @@ def publication_issues(entries):
             issues.append(f"{name}: symlink or unresolved merge stage")
         if (
             any(part in forbidden_parts for part in path.parts)
+            or path.parts[0] == "releases"
+            or name == "release.json"
             or path.name in forbidden_names
             or (path.name.startswith(".env") and path.name != ".env.example")
             or any(fnmatch.fnmatch(path.name, pattern) for pattern in forbidden_patterns)

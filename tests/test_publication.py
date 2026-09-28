@@ -16,6 +16,7 @@ from scripts.check_publication import publication_issues
     "certificate.pem", "secret.key", "bundle.zip", "node_modules/tool/index.js",
     ".venv/bin/python", "dist/index.html", "nested/.npmrc", ".pypirc",
     ".azure/profile.json", ".aws/config", ".ssh/id_ed25519", "state.tfbackend", ".terraformrc",
+    "release.json", "releases/manifest.json",
 ])
 def test_prohibited_publication_paths(path):
     assert publication_issues([("100644", "0", path)])
@@ -24,6 +25,7 @@ def test_prohibited_publication_paths(path):
 def test_source_examples_and_lockfiles_are_publishable():
     paths = [
         ".env.example", "infra/terraform.tfvars.example", "infra/.terraform.lock.hcl",
+        "infra/backend.tf.example", "infra/backend.azurerm.tfbackend.example",
         ".npmrc", "package-lock.json", "server/app.py", "docs/architecture.drawio",
     ]
     assert publication_issues([("100644", "0", path) for path in paths]) == []

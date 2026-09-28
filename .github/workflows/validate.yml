@@ -43,9 +43,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
-      PIP_INDEX_URL: https://packagefeedproxy.microsoft.io/pypi/simple/
+      PACKAGE_FEED_PYTHON_INDEX: ${{ vars.PACKAGE_FEED_PYTHON_INDEX || 'https://packagefeedproxy.microsoft.io/pypi/simple/' }}
+      PACKAGE_FEED_NPM_REGISTRY: ${{ vars.PACKAGE_FEED_NPM_REGISTRY || 'https://packagefeedproxy.microsoft.io/npm/' }}
+      PACKAGE_FEED_NPM_TARBALL_BASE: ${{ vars.PACKAGE_FEED_NPM_TARBALL_BASE }}
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
-      NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
       NPM_CONFIG_IGNORE_SCRIPTS: "true"
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
@@ -59,6 +60,8 @@ jobs:
         with:
           node-version: "24"
           package-manager-cache: false
+      - name: Verify approved feeds before any package restore
+        run: python scripts/configure_feeds.py check --github-env "$GITHUB_ENV"
       - name: Restore from approved feeds
         run: |
           python -m pip install --only-binary=:all: -r requirements-dev.txt

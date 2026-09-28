@@ -95,19 +95,10 @@ def disable(ids=None, options=None):
     return {"serverIds": [102] if ids is None else ids, "confirmation": "DISABLE BACKUPS", "options": options or {}}
 
 
-def test_npm_configuration_and_lockfile_use_only_internal_feed():
-    from urllib.parse import urlsplit
-    npmrc = (ROOT / ".npmrc").read_text()
-    assert "registry=https://packagefeedproxy.microsoft.io/npm/\n" in npmrc
-    assert "strict-ssl=true\n" in npmrc
-    lock = json.loads((ROOT / "package-lock.json").read_text())
-    for dependency in lock["packages"].values():
-        if "resolved" not in dependency:
-            continue
-        url = urlsplit(dependency["resolved"])
-        assert url.hostname in ("packagefeedproxy.microsoft.io", "ms-feed-25.pkgs.visualstudio.com")
-        assert url.scheme == "https"
-        assert not (url.username or url.password or url.query)
+def test_npm_configuration_and_lockfile_use_only_approved_feeds():
+    from scripts.configure_feeds import check
+
+    check(ROOT)
 
 
 def test_settings_default_to_stub_and_hide_credentials_in_errors():

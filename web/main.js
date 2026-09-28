@@ -87,7 +87,7 @@ document.querySelector("#app").innerHTML = `
 `;
 
 const $ = (id) => document.getElementById(id);
-const state = { config: null, msal: null, account: null, servers: [], selected: new Set(), results: new Map(), canDisable: false, busy: false, phase: "", loaded: false, inventoryFailed: false, updatedAt: null, inventory: null, requestId: null, requestTargets: null, trackingBlocked: false, polling: false, pollTimer: null };
+const state = { config: null, msal: null, account: null, servers: [], selected: new Set(), results: new Map(), canDisable: null, busy: false, phase: "", loaded: false, inventoryFailed: false, updatedAt: null, inventory: null, requestId: null, requestTargets: null, trackingBlocked: false, polling: false, pollTimer: null };
 const queuedMode = () => state.config?.executionMode === "queued";
 const validRequestId = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const terminalRequestStates = new Set(["completed", "partial", "failed", "unknown"]);
@@ -307,7 +307,9 @@ $("copy-details").addEventListener("click", async () => {
 
 async function token() {
   try {
-    return (await state.msal.acquireTokenSilent({ account: state.account, scopes: [state.config.scope] })).accessToken;
+    return (await state.msal.acquireTokenSilent({
+      account: state.account, scopes: [state.config.scope], redirectUri: state.config.silentRedirectUri,
+    })).accessToken;
   } catch (error) {
     if (error instanceof InteractionRequiredAuthError) {
       await state.msal.acquireTokenRedirect({ account: state.account, scopes: [state.config.scope] });
@@ -354,7 +356,7 @@ function updateControls() {
   $("sign-in").disabled = state.busy || !state.config?.identityConfigured;
   $("inventory").setAttribute("aria-busy", String(state.phase === "loading"));
   $("red-button").setAttribute("aria-busy", String(state.phase === "submitting"));
-  $("refresh").textContent = state.phase === "loading" ? "Loading..." : state.inventoryFailed ? "Retry inventory" : queuedMode() ? "Reload inventory" : "Refresh";
+  $("refresh").textContent = state.phase === "loading" ? "Loading..." : state.account && state.canDisable === null ? "Retry sign-in" : state.inventoryFailed ? "Retry inventory" : queuedMode() ? "Reload inventory" : "Refresh";
   $("check-status").hidden = !state.requestId;
   $("stop-tracking").hidden = !state.requestId;
   $("stop-tracking").disabled = state.busy;
@@ -369,6 +371,7 @@ function updateControls() {
   else if (state.phase === "submitting") guidance = "Request in progress. Do not retry or close this page.";
   else if (state.phase === "loading") guidance = "Loading your server inventory...";
   else if (state.trackingBlocked) guidance = "A saved request still needs an outcome. Check its status before submitting another.";
+  else if (state.canDisable === null) guidance = "Sign-in has not been verified. Use Retry sign-in, or sign out and sign in again.";
   else if (!state.canDisable) guidance = "Read-only access. Contact your administrator to request permission.";
   else if (state.inventoryFailed) guidance = "Inventory could not be loaded. Use Retry inventory.";
   else if (!state.selected.size) guidance = "Select at least one server to enable the red button.";
@@ -422,6 +425,12 @@ function renderServers() {
   updateControls();
 }
 
+async function loadPermissions() {
+  const me = await api("/api/me");
+  if (typeof me.canDisable !== "boolean") throw new Error("The server did not return valid operation permissions.");
+  state.canDisable = me.canDisable;
+}
+
 async function refresh() {
   if (state.busy) return;
   clearError();
@@ -432,6 +441,7 @@ async function refresh() {
   $("inventory-status").textContent = "Loading servers. Selection is cleared when inventory is refreshed.";
   updateControls();
   try {
+    if (state.canDisable === null) await loadPermissions();
     const data = await api(`/api/servers?showOnlyInfrastructureMachines=${$("infrastructure").checked ? 1 : 0}`);
     if (queuedMode() && (!data.inventory || typeof data.inventory.stale !== "boolean"
       || typeof data.inventory.updatedAt !== "string" || Number.isNaN(Date.parse(data.inventory.updatedAt)))) {
@@ -658,8 +668,7 @@ async function initialize() {
     if (state.config.multiTenant === true && !state.config.allowedTenantIds?.includes(state.account.tenantId)) {
       throw new Error("Your organization is not enabled for this application. Sign out and use an approved work account.");
     }
-    const me = await api("/api/me");
-    state.canDisable = me.canDisable;
+    await loadPermissions();
     await refresh();
     if (queuedMode()) {
       let previous;

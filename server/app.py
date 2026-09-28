@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 import jwt
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -69,22 +69,25 @@ def create_app(
     async def request_context(request: Request, call_next):
         request.state.request_id = str(uuid4())
         response = await call_next(request)
+        silent_callback = request.url.path == "/auth/silent" and request.method == "GET" and response.status_code == 200
         response.headers["X-Request-Id"] = request.state.request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN" if silent_callback else "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Cross-Origin-Opener-Policy"] = "same-origin-allow-popups"
         csp = (
             "default-src 'self'; script-src 'self'; style-src 'self'; "
             "connect-src 'self' https://login.microsoftonline.com; "
-            "frame-src https://login.microsoftonline.com; "
+            "frame-src 'self' https://login.microsoftonline.com; "
             "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
         )
+        if silent_callback:
+            csp = "default-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'"
         if settings.environment == "production":
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
             csp += "; upgrade-insecure-requests"
         response.headers["Content-Security-Policy"] = csp
-        if request.url.path.startswith("/api"):
+        if request.url.path.startswith("/api") or request.url.path == "/" or silent_callback:
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -137,6 +140,11 @@ def create_app(
     async def health():
         return {"status": "ok"}
 
+    @app.get("/auth/silent", response_class=HTMLResponse)
+    async def silent_sign_in():
+        # MSAL's parent window consumes the fragment; no app/router runs in this iframe.
+        return '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Microsoft sign-in callback</title></head><body></body></html>'
+
     @app.get("/api/config")
     async def public_config():
         return {
@@ -152,6 +160,7 @@ def create_app(
             "clientId": settings.spa_client_id,
             "scope": f"api://{settings.api_client_id}/access_as_user",
             "redirectUri": settings.public_origin + "/",
+            "silentRedirectUri": settings.public_origin + "/auth/silent",
         }
 
     @app.get("/api/me")

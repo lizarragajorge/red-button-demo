@@ -201,7 +201,11 @@ run "secure_stub_defaults" {
       azuread_application.api.api[0].requested_access_token_version == 2 &&
       one(azuread_application.api.app_role).value == "BackupOperator" &&
       one(azuread_application.api.app_role).allowed_member_types == toset(["User"]) &&
-      azuread_application.spa.single_page_application[0].redirect_uris == toset(["https://red-button-local-test.azurewebsites.net/", "http://localhost:5173/", "http://localhost:8080/"]) &&
+      azuread_application.spa.single_page_application[0].redirect_uris == toset([
+        "https://red-button-local-test.azurewebsites.net/", "https://red-button-local-test.azurewebsites.net/auth/silent",
+        "http://localhost:5173/", "http://localhost:5173/auth/silent",
+        "http://localhost:8080/", "http://localhost:8080/auth/silent",
+      ]) &&
       azuread_application_pre_authorized.spa.permission_ids == toset([local.scope_id])
     )
     error_message = "Identity must enforce the delegated v2 token and operator role contract."
@@ -577,6 +581,7 @@ run "gateway_https_only_and_backend_lockdown" {
       toset([for endpoint in azurerm_subnet.gateway[0].service_endpoint : endpoint.service]) == toset(["Microsoft.Web", "Microsoft.KeyVault"]) &&
       output.app_url == "https://backup.example.com" &&
       contains(azuread_application.spa.single_page_application[0].redirect_uris, "https://backup.example.com/") &&
+      contains(azuread_application.spa.single_page_application[0].redirect_uris, "https://backup.example.com/auth/silent") &&
       !contains(azuread_application.spa.single_page_application[0].redirect_uris, "https://red-button-local-test.azurewebsites.net/") &&
       azuread_service_principal.api.app_role_assignment_required &&
       local.operator_role_id == uuidv5("url", "https://red-button-local-test.azurewebsites.net/BackupOperator")

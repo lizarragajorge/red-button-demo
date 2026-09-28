@@ -463,6 +463,20 @@ with each external administrator and obtain fresh tokens after assignment change
 
 ## Build and deploy the application
 
+The SPA registers both `/` (interactive sign-in) and `/auth/silent` (silent token
+renewal) at the hosted origin and both localhost origins. The silent callback is
+a script-free page: MSAL in the parent reads its URL fragment. It must not load
+the application/router or rewrite the fragment. The dashboard permits same-origin
+frames, but only this callback permits same-origin embedding; the dashboard and
+APIs retain `frame-ancestors 'none'` and `X-Frame-Options: DENY`. The callback uses
+`frame-ancestors 'self'`, `SAMEORIGIN`, and `Cache-Control: no-store`.
+
+Deploy the registered callback URI before the frontend that requests it. A
+`monitor_window_timeout` with a browser CSP framing error is a sign-in failure,
+not evidence that `BackupOperator` is missing. Retry sign-in after correcting
+the callback/CSP configuration; confirm `/api/me` succeeds before diagnosing role
+assignments. Do not relax token validation or permit cross-origin embedding.
+
 **Chosen process: build the frontend, stage and test Python dependencies on a
 compatible Linux CI runner/container, then upload a ready-to-run zip.** The
 platform-independent frontend assets may be built on macOS using dependencies

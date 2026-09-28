@@ -52,7 +52,10 @@ resource "azuread_application" "spa" {
   owners           = [data.azurerm_client_config.current.object_id]
 
   single_page_application {
-    redirect_uris = ["${local.app_url}/", "http://localhost:5173/", "http://localhost:8080/"]
+    redirect_uris = flatten([
+      for origin in [local.app_url, "http://localhost:5173", "http://localhost:8080"] :
+      ["${origin}/", "${origin}/auth/silent"]
+    ])
   }
 
   required_resource_access {

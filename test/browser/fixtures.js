@@ -5,6 +5,7 @@ export const publicConfig = {
   clientId: "33333333-3333-4333-8333-333333333333",
   scope: "api://22222222-2222-4222-8222-222222222222/access_as_user",
   redirectUri: "http://localhost:5173/",
+  silentRedirectUri: "http://localhost:5173/auth/silent",
 };
 
 export const servers = [
@@ -16,6 +17,7 @@ export async function mockApp(page, {
   configured = true, canDisable = true, mode = "stub", signedIn = true,
   displayName = "Red Button", supportUrl = "", executionMode = "sync", accountId = "fixture-user",
   multiTenant = false, accountTenant = publicConfig.tenantId, allowedTenantIds = [publicConfig.tenantId],
+  tokenError = null,
   inventory = { updatedAt: new Date().toISOString(), stale: false, refreshError: null },
 } = {}) {
   const account = signedIn ? { name: "Demo operator", username: "operator@example.invalid", homeAccountId: accountId, tenantId: accountTenant } : null;
@@ -31,7 +33,15 @@ export async function mockApp(page, {
         getActiveAccount() { return ${JSON.stringify(account)}; }
         getAllAccounts() { return []; }
         setActiveAccount() {}
-        async acquireTokenSilent() { return { accessToken: "browser-fixture-not-a-real-token" }; }
+        async acquireTokenSilent(request) {
+          globalThis.fixtureSilentRequest = request;
+          if (${JSON.stringify(tokenError)} && !globalThis.fixtureTokenRecovered) {
+            const error = new Error("Synthetic sign-in failure");
+            error.errorCode = ${JSON.stringify(tokenError)};
+            throw error;
+          }
+          return { accessToken: "browser-fixture-not-a-real-token" };
+        }
       }
     `,
   }));

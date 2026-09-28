@@ -386,6 +386,29 @@ async def test_production_security_headers(harness):
         assert "upgrade-insecure-requests" in response.headers["content-security-policy"]
         assert response.headers["strict-transport-security"].startswith("max-age=")
         assert response.headers["cross-origin-opener-policy"] == "same-origin-allow-popups"
+        assert response.headers["x-frame-options"] == "DENY"
+        assert "frame-src 'self' https://login.microsoftonline.com" in response.headers["content-security-policy"]
+        assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+
+
+async def test_silent_callback_is_script_free_same_origin_only_and_not_cached(harness):
+    async with harness() as h:
+        config = (await h.request("/api/config", anonymous=True)).json()
+        assert config["silentRedirectUri"] == CONFIG.public_origin + "/auth/silent"
+        response = await h.request("/auth/silent", anonymous=True)
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/html")
+        assert response.headers["x-frame-options"] == "SAMEORIGIN"
+        assert response.headers["cache-control"] == "no-store"
+        assert response.headers["content-security-policy"] == "default-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'"
+        assert "<script" not in response.text and "location" not in response.text
+        for path in ("/", "/api/me", "/auth/silent-missing"):
+            protected = await h.request(path, anonymous=True)
+            assert protected.headers["x-frame-options"] == "DENY"
+            assert "frame-ancestors 'none'" in protected.headers["content-security-policy"]
+        wrong_method = await h.request("/auth/silent", anonymous=True, method="POST")
+        assert wrong_method.status_code == 405
+        assert wrong_method.headers["x-frame-options"] == "DENY"
 
 
 async def test_upstream_failures_are_explicit_and_unexpected_errors_are_redacted(harness, monkeypatch):

@@ -9,8 +9,9 @@ emulator. Keep the simulated environment and operational safeguards explicit.
 
 Public source access does not grant access to a hosted deployment. Each operator
 needs approved home-tenant/guest access or an explicitly allowlisted organizational
-tenant, the required consent and app access, and the API's `BackupOperator` role.
-Allowlisting a tenant does not grant its users permission to perform operations.
+tenant, and the required consent and app access. By default these users can
+operate the simulator. Live or restricted-demo operations additionally require
+the API's `BackupOperator` role; demo access does not grant real backup privileges.
 Do not publish invitations, credentials, tokens, server inventories, or
 screenshots containing real client information.
 
@@ -83,7 +84,9 @@ guarantee, and mock tests are not cloud integration tests.
 ## Before sharing a deployment
 
 Complete a hosted sign-in as an assigned operator, exercise a simulated request,
-and verify users without `BackupOperator` cannot submit operations. If multi-tenant
+and verify signed-in users can exercise the default simulator while anonymous
+users cannot. In live or restricted-demo mode, verify users without
+`BackupOperator` cannot submit operations. If multi-tenant
 access is enabled, also verify an unapproved tenant is rejected and confirm each
 approved organization's consent/access policies. Keep `COMMVAULT_MODE=stub` and
 `ENABLE_LIVE_OPERATIONS=false`. Decide who may access logs and copy support

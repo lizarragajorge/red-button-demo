@@ -114,8 +114,8 @@ async def test_key_clients_are_bound_to_allowlisted_authorities(monkeypatch, pri
         await verifier.verify(token(private_key, claims(SECOND)))
 
 
-async def test_external_read_access_does_not_grant_operator_permission(harness):
-    async with harness(multi_settings()) as app:
+async def test_restricted_demo_keeps_external_readonly_access(harness):
+    async with harness(multi_settings(ALLOW_SIGNED_IN_DEMO_OPERATIONS="false")) as app:
         readonly = claims(roles=[])
         assert (await app.request("/api/servers", claims=readonly)).status_code == 200
         assert (await app.request("/api/me", claims=readonly)).json() == {"canDisable": False}

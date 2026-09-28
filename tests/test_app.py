@@ -133,6 +133,7 @@ async def test_public_branding_does_not_change_safety_gates(harness):
     settings = Settings.from_env({
         **IDENTITY, "APP_DISPLAY_NAME": "  Client Backup Control  ",
         "SUPPORT_URL": "https://support.example.invalid/help",
+        "ALLOW_SIGNED_IN_DEMO_OPERATIONS": "false",
     })
     async with harness(settings=settings) as h:
         config = (await h.request("/api/config", anonymous=True)).json()
@@ -145,6 +146,7 @@ async def test_public_branding_does_not_change_safety_gates(harness):
 
 @pytest.mark.parametrize("env", [
     {"APP_ENV": "production"}, {"COMMVAULT_MODE": "typo"}, {"ENABLE_LIVE_OPERATIONS": "yes"},
+    {"ALLOW_SIGNED_IN_DEMO_OPERATIONS": "yes"},
     {"ENTRA_API_CLIENT_ID": "invalid"}, {"PUBLIC_ORIGIN": "https://demo.invalid/path"},
     {"PUBLIC_ORIGIN": "http://demo.invalid"},
     {**IDENTITY, "COMMVAULT_MODE": "live", "COMMVAULT_BASE_URL": "http://demo.invalid", "COMMVAULT_AUTH_VALUE": "token"},
@@ -228,7 +230,8 @@ async def test_disable_only_selected_server_repeat_and_audit(harness):
 
 
 async def test_operator_role_and_live_gate_are_independently_required(harness):
-    async with harness() as h:
+    settings = Settings.from_env({**IDENTITY, "ALLOW_SIGNED_IN_DEMO_OPERATIONS": "false"})
+    async with harness(settings=settings) as h:
         assert (await h.request("/api/disable", body=disable(), claims={"roles": []})).status_code == 403
         assert (await h.request("/api/me", claims={"roles": []})).json() == {"canDisable": False}
     for enabled in (False, True):
@@ -237,6 +240,8 @@ async def test_operator_role_and_live_gate_are_independently_required(harness):
             "COMMVAULT_AUTH_VALUE": "test-value", "ENABLE_LIVE_OPERATIONS": "true" if enabled else "false",
         })
         async with harness(settings=settings) as h:
+            assert (await h.request("/api/disable", body=disable(), claims={"roles": []})).status_code == 403
+            assert (await h.request("/api/me", claims={"roles": []})).json() == {"canDisable": False}
             assert (await h.request("/api/disable", body=disable())).status_code == (200 if enabled else 403)
             assert h.store.get_state(102).disabled is enabled
 

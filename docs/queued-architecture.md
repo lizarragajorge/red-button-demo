@@ -46,8 +46,10 @@ networking, ingress restrictions, and deployment validation remain prerequisites
 
 ## Submission and tracking contract
 
-1. The API validates the Entra token, operator role, live-write gate, target IDs,
-   typed confirmation, and requested re-enable deadline.
+1. The API validates the Entra token, mode-specific permission, live-write gate,
+   target IDs, typed confirmation, and requested re-enable deadline. Signed-in
+   approved users can operate the simulator by default; live and restricted-demo
+   actions require `BackupOperator`. Request ownership remains per tenant/user.
 2. The browser generates a UUID `Idempotency-Key` and saves that reference before
    submitting. The server can generate one for callers that omit the header.
 3. The API persists a request record before sending its queue message. A `202`

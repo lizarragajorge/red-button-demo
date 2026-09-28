@@ -113,6 +113,7 @@ resource "azurerm_linux_web_app" "demo" {
     COMMVAULT_BASE_URL                    = local.commvault_url
     COMMVAULT_AUTH_HEADER                 = var.commvault_auth_header
     ENABLE_LIVE_OPERATIONS                = tostring(var.enable_live_operations)
+    ALLOW_SIGNED_IN_DEMO_OPERATIONS       = tostring(var.allow_signed_in_demo_operations)
     SCM_DO_BUILD_DURING_DEPLOYMENT        = "false"
     APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.demo.connection_string
     }, var.commvault_mode == "live" ? {

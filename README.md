@@ -37,7 +37,12 @@ Confirm ownership and disclosure approval before public release. See the
    simulated state. Queued mode uses shared Blob state and supports saved
    request lookup after a browser or process restart.
 
-An operator needs the `BackupOperator` role on the API enterprise application.
+By default, any signed-in user admitted by the configured tenant and consent
+policies can run the full **simulated** demo without a role assignment.
+Set `ALLOW_SIGNED_IN_DEMO_OPERATIONS=false` (Terraform:
+`allow_signed_in_demo_operations=false`) to require `BackupOperator` for the
+simulator too. **Live operations always require `BackupOperator` and the live-write
+gate**; demo access never grants live permissions.
 When SPA assignment is required, assign access to that application too. The app
 is single-tenant by default: external participants need approved guest onboarding
 and assignments, or the explicit organizational allowlist described below.
@@ -65,9 +70,10 @@ Each external organization's administrator must approve/admin-consent the SPA
 and API scope and configure its enterprise-app access policies. Adding a tenant
 ID here does not grant that consent or override cross-tenant/Conditional Access
 restrictions. Existing assignment requirements in the home tenant are unchanged.
-Authenticated users without `BackupOperator` can view inventory, but cannot use
-the red button; operators need that API role assigned **in the tenant issuing
-their token**. Keep broad viewing separate from narrowly assigned operations.
+Authenticated users can operate the simulator by default. In restricted demo
+mode or live mode, users without `BackupOperator` remain read-only; operators
+need that API role assigned **in the tenant issuing their token**. Keep real
+backup privileges separate from the default demo permission.
 Queued requests and browser recovery references are isolated by tenant and user;
 existing home-tenant request ownership stays compatible. See
 [identity deployment instructions](docs/infrastructure.md) for configuration and
@@ -98,7 +104,7 @@ Browser -- MSAL / authorization code + PKCE --> Microsoft Entra ID
    v
 Python / FastAPI backend on Azure App Service
    | validate signature, issuer, audience, tenant, caller, expiry, scope
-   | require BackupOperator role for mutations; record per-server audit events
+   | signed-in demo access; BackupOperator for live/restricted mutations; audit
    v
 Shared Commvault HTTP client
    |-- stub mode --> private in-process HTTP stub, random per-process credential
@@ -175,6 +181,7 @@ Copy `.env.example` to `.env` and set:
 | `APP_ENV` | `development` locally; `production` requires configured Entra IDs |
 | `PORT` | Python server port; `8080` by default |
 | `COMMVAULT_MODE` | `stub` by default; `live` only for an approved integration |
+| `ALLOW_SIGNED_IN_DEMO_OPERATIONS` | `true` by default: approved signed-in users can operate the simulator; `false` requires `BackupOperator` for demo actions too; never grants live access |
 | `EXECUTION_MODE` | `sync` by default; `queued` requires shared storage and the Function worker/timer |
 | `ENABLE_LIVE_OPERATIONS` | `false` by default; independently blocks live writes |
 | `APP_DISPLAY_NAME` | Public app name, default `Red Button`; 1-60 printable characters, not blank |
@@ -188,7 +195,7 @@ The system-keychain export described above can supply the trusted corporate CA
 certificates for Python as well as Node. Keep TLS verification enabled; do not commit a
 workstation-specific certificate path or certificate bundle.
 
-The SPA redirect URI must include the trailing slash, e.g. `http://localhost:5173/`. The API exposes delegated `api://<API-client-ID>/access_as_user`; mutations additionally require the API app role `BackupOperator`. Sign out and in after a role change.
+The interactive SPA redirect URI must include the trailing slash, e.g. `http://localhost:5173/`; also register `/auth/silent` on the same origin for silent renewal. The API exposes delegated `api://<API-client-ID>/access_as_user`. Live and restricted-demo mutations require `BackupOperator`; the default simulator permits authenticated users without that role. Sign out and in after a role change.
 
 ```bash
 # Terminal 1, with the Python virtual environment activated

@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .auth import Actor, EntraTokenVerifier, TokenRejected, TokenVerifier
+from .auth import Actor, EntraTokenVerifier, TokenRejected, TokenVerifier, can_disable
 from .commvault import CommvaultClient, CommvaultError
 from .config import Settings
 from .middleware import BodyLimitMiddleware
@@ -153,6 +153,7 @@ def create_app(
             "mode": settings.mode,
             "executionMode": settings.execution_mode,
             "liveOperationsEnabled": settings.live_operations == "true",
+            "signedInDemoOperations": settings.mode == "stub" and settings.demo_operations == "true",
             "identityConfigured": settings.identity_configured,
             "tenantId": settings.tenant_id,
             "multiTenant": settings.multi_tenant == "true",
@@ -165,7 +166,7 @@ def create_app(
 
     @app.get("/api/me")
     async def me(actor: Actor = Depends(authenticate)):
-        return {"canDisable": "BackupOperator" in actor.roles and (settings.mode == "stub" or settings.live_operations == "true")}
+        return {"canDisable": can_disable(actor, settings)}
 
     @app.get("/api/servers")
     async def list_servers(request: Request, actor: Actor = Depends(authenticate)):
@@ -194,9 +195,9 @@ def create_app(
 
     @app.post("/api/disable")
     async def disable_backups(body: DisableRequest, request: Request, actor: Actor = Depends(authenticate)):
-        if "BackupOperator" not in actor.roles:
-            raise HTTPException(403, "BackupOperator role is required.")
-        if settings.mode == "live" and settings.live_operations != "true":
+        if not can_disable(actor, settings):
+            if "BackupOperator" not in actor.roles:
+                raise HTTPException(403, "BackupOperator role is required.")
             raise HTTPException(403, "Live backup changes are disabled by configuration.")
         if settings.execution_mode == "sync" and body.options.enable_after_a_delay is not None and body.options.enable_after_a_delay <= time.time():
             raise HTTPException(400, "Re-enable time must be in the future.")

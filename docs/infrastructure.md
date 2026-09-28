@@ -41,14 +41,17 @@ been provisioned.
   and defines the user app role `BackupOperator`. Its v2 audience is the API
   **client GUID**, not the `api://` scope prefix. The SPA uses authorization code
   with PKCE through MSAL, without a client secret or implicit grant.
-- Redirect URIs are exactly `https://<app-name>.azurewebsites.net/`,
-  `http://localhost:5173/`, and `http://localhost:8080/`. The SPA is preauthorized
+- Redirect URIs include `/` and `/auth/silent` at `https://<app-name>.azurewebsites.net`,
+  `http://localhost:5173`, and `http://localhost:8080`. The SPA is preauthorized
   for the API's delegated scope.
 - `COMMVAULT_MODE=stub` and `ENABLE_LIVE_OPERATIONS=false` are defaults. The
   shared Commvault client sends HTTP requests through a private in-process
   `httpx.ASGITransport` to the stub, preserving the HTTP request/envelope semantics.
   The stub opens no external or loopback socket. No authentication bypass is
   enabled.
+- `allow_signed_in_demo_operations=true` permits all authenticated approved-tenant
+  users to operate the simulator. It never grants real backup privileges.
+  Set it to false to require `BackupOperator` in the simulator too.
 
 For client branding, set `display_name` (default `Red Button`) and optionally
 `support_url` in your local tfvars. Terraform passes these as `APP_DISPLAY_NAME`
@@ -219,7 +222,7 @@ DNS, healthy probes or TLS, and a partial apply can interrupt availability.
 Schedule a maintenance window and stage tested artifacts first. Set the public
 DNS A record to `gateway_public_ip`; Terraform does not manage DNS records.
 `PUBLIC_ORIGIN` and the SPA redirect URI change to the gateway hostname.
-Entra validation and BackupOperator authorization remain enabled; existing scope
+Entra validation and the demo/live authorization policy remain enabled; existing scope
 and role UUIDs stay stable when switching origins.
 
 SCM/deployment ingress is separately denied by default in gateway mode. Supply
@@ -278,7 +281,7 @@ tenant, and avoid conflicting `ARM_*` authentication variables.
 
 Azure CLI login does **not** authenticate browser users to the app. MSAL uses the
 new SPA registration, requests an API token for the signed-in user, and the
-backend validates that token and the operator role. Azure subscription Owner
+backend validates that token and requires the operator role for live or restricted-demo actions. Azure subscription Owner
 does not automatically confer Entra directory administration or BackupOperator.
 
 The provisioning identity needs:
@@ -395,13 +398,22 @@ intentionally defaults to local state and does not create a backend.
 
 Set `operator_object_ids` to tenant **user object IDs**, not app/client IDs.
 Terraform grants each user BackupOperator on the **API enterprise application**.
-The default is an empty list and `api_assignment_required=true`, so no ordinary
-user can obtain useful operator access until explicitly assigned.
+The default is an empty list, but no operator assignment is needed for the
+default simulator: `allow_signed_in_demo_operations=true` grants the application's
+demo permission after normal token validation. It does not add a role to the
+Entra token or assign `BackupOperator`.
+
+`api_assignment_required=null` selects the appropriate default: API assignment
+is not required for open stub mode, and is required for live or restricted-demo
+mode. An explicit true/false overrides only enterprise-app admission; it cannot
+bypass the backend's live role or live-write checks. Set
+`allow_signed_in_demo_operations=false` to require `BackupOperator` for simulated
+actions too.
 
 `spa_assignment_required=false` lets tenant users sign in to the SPA, but does
-not grant API access. Set it to true to also assign each listed operator the
+not by itself grant API access. Set it to true to also assign each listed operator the
 SPA's default access role and restrict SPA sign-in. Disabling API assignment
-restrictions never disables the backend's role and scope checks. Sign out/in
+restrictions never disables the backend's token, scope, and mode-specific permission checks. Sign out/in
 after assignments to obtain a fresh access token containing the role.
 
 The API scope is admin-consent-only; SPA preauthorization is explicitly managed
@@ -412,7 +424,8 @@ permission in **Entra > App registrations > SPA > API permissions > Grant admin
 consent**. Do not confuse this with granting Graph privileges to the provisioning
 identity. No Graph delegated permission is required by the demo SPA itself.
 The configuration does not automatically create tenant-wide OAuth consent grants.
-Consent does not grant BackupOperator; both authorization requirements matter.
+Consent does not grant BackupOperator. That role remains mandatory for live and
+restricted-demo operations.
 
 ### Opt-in organizational multi-tenant access
 
@@ -445,17 +458,18 @@ in addition to signature, expiry, audience, and delegated scope checks. A
 multi-tenant registration alone does not allow arbitrary organizations.
 
 Approved external-tenant users with the delegated `access_as_user` scope can
-read data; **actions still require the API's `BackupOperator` role**. Allowlisting
-an organization is therefore a deliberate read-access trust decision, not an
-operator assignment. Neither allowlisting nor admin consent grants that role.
+read data and, by default, operate the simulator. **Live and restricted-demo
+actions still require `BackupOperator`.** Allowlisting an organization therefore
+trusts its admitted users with demo access, not real backup privileges. Neither
+allowlisting nor admin consent grants the Entra operator role.
 The scope remains **admin-consent-only**. External tenant administrators must
 approve consent and manage their own API/SPA enterprise applications, assignment
 policies, and remote service-principal role assignments. SPA preauthorization
 does not replace an external organization's consent and assignment policies.
 
-Enabling this option does **not** weaken the home tenant's
-`api_assignment_required=true` default or change `spa_assignment_required`
-(false by default). `operator_object_ids` provisions only home-tenant API
+Enabling multi-tenancy does not independently change the mode-dependent API
+assignment default or `spa_assignment_required` (false by default).
+`operator_object_ids` provisions only home-tenant API
 operator assignments (and optional local SPA access); do not put external user
 object IDs in it. This Terraform does not create or administer remote enterprise
 applications, remote consent grants, or remote role assignments. Arrange those

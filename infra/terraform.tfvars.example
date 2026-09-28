@@ -19,9 +19,10 @@ allowed_tenant_ids  = []
 # allowed_tenant_ids  = ["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]
 
 service_plan_sku         = "B1"
-api_assignment_required = true
+api_assignment_required = null # Default: open demo; assignment required for live/restricted mode.
 spa_assignment_required = false
 commvault_mode           = "stub"
+allow_signed_in_demo_operations = true
 enable_live_operations   = false
 # Opt-in only: leaves the existing hosted synchronous demo unchanged by default.
 enable_three_tier                  = false

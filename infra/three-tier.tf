@@ -112,6 +112,7 @@ resource "azurerm_linux_function_app" "worker" {
     COMMVAULT_BASE_URL              = local.commvault_url
     COMMVAULT_AUTH_HEADER           = var.commvault_auth_header
     ENABLE_LIVE_OPERATIONS          = tostring(var.enable_live_operations)
+    ALLOW_SIGNED_IN_DEMO_OPERATIONS = tostring(var.allow_signed_in_demo_operations)
     SCM_DO_BUILD_DURING_DEPLOYMENT  = "false"
     ENABLE_ORYX_BUILD               = "false"
     }, var.commvault_mode == "live" ? {

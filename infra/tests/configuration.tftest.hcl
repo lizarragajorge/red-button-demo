@@ -131,7 +131,8 @@ variables {
   app_name                                = "red-button-local-test"
   app_service_location                    = null
   operator_object_ids                     = []
-  api_assignment_required                 = true
+  api_assignment_required                 = null
+  allow_signed_in_demo_operations         = true
   spa_assignment_required                 = false
   enable_multi_tenant                     = false
   allowed_tenant_ids                      = []
@@ -154,6 +155,7 @@ run "secure_stub_defaults" {
       azurerm_linux_web_app.demo.app_settings["APP_DISPLAY_NAME"] == "Red Button" &&
       azurerm_linux_web_app.demo.app_settings["SUPPORT_URL"] == "" &&
       azurerm_linux_web_app.demo.app_settings["ENABLE_LIVE_OPERATIONS"] == "false" &&
+      azurerm_linux_web_app.demo.app_settings["ALLOW_SIGNED_IN_DEMO_OPERATIONS"] == "true" &&
       !contains(keys(azurerm_linux_web_app.demo.app_settings), "COMMVAULT_AUTH_VALUE") &&
       azurerm_linux_web_app.demo.app_settings["PORT"] == "8080" &&
       !contains(keys(azurerm_linux_web_app.demo.app_settings), "NODE_ENV") &&
@@ -192,7 +194,7 @@ run "secure_stub_defaults" {
 
   assert {
     condition = (
-      azuread_service_principal.api.app_role_assignment_required &&
+      !azuread_service_principal.api.app_role_assignment_required &&
       !azuread_service_principal.spa.app_role_assignment_required &&
       length(azuread_app_role_assignment.operator) == 0 &&
       azuread_application.api.sign_in_audience == "AzureADMyOrg" &&
@@ -276,6 +278,38 @@ run "restricted_vault_network" {
       azurerm_linux_web_app.demo.app_settings["COMMVAULT_MODE"] == "stub"
     )
     error_message = "Restricted stub deployments must preserve disabled public vault access and RBAC."
+  }
+}
+
+run "restricted_demo_requires_assignment_and_role" {
+  command = plan
+  variables {
+    allow_signed_in_demo_operations = false
+    enable_three_tier               = true
+  }
+  assert {
+    condition = (
+      azuread_service_principal.api.app_role_assignment_required &&
+      azurerm_linux_web_app.demo.app_settings["ALLOW_SIGNED_IN_DEMO_OPERATIONS"] == "false" &&
+      azurerm_linux_function_app.worker[0].app_settings["ALLOW_SIGNED_IN_DEMO_OPERATIONS"] == "false"
+    )
+    error_message = "Restricted demos must require API assignment and disable the signed-in demo policy on both apps."
+  }
+}
+
+run "live_requires_assignment_despite_demo_default" {
+  command = plan
+  variables {
+    commvault_mode     = "live"
+    commvault_base_url = "https://commvault.example.com/api"
+  }
+  assert {
+    condition = (
+      azuread_service_principal.api.app_role_assignment_required &&
+      azurerm_linux_web_app.demo.app_settings["ENABLE_LIVE_OPERATIONS"] == "false" &&
+      one(azuread_application.api.app_role).value == "BackupOperator"
+    )
+    error_message = "The open demo default must not remove live-mode assignment, role, or live-write protections."
   }
 }
 
@@ -556,6 +590,7 @@ run "reject_gateway_certificate_value" {
 run "gateway_https_only_and_backend_lockdown" {
   command = plan
   variables {
+    api_assignment_required       = true
     enable_three_tier             = true
     enable_gateway_ingress        = true
     gateway_hostname              = "backup.example.com"
@@ -718,6 +753,7 @@ run "multi_tenant_org_allowlist_and_runtime" {
       "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
     ]
     operator_object_ids     = ["cccccccc-cccc-cccc-cccc-cccccccccccc"]
+    api_assignment_required = true
     spa_assignment_required = true
   }
   assert {
@@ -765,7 +801,7 @@ run "multi_tenant_sync_and_maximum_allowlist" {
       length(split(",", azurerm_linux_web_app.demo.app_settings["ENTRA_ALLOWED_TENANT_IDS"])) == 20 &&
       azurerm_linux_web_app.demo.app_settings["ENTRA_MULTI_TENANT"] == "true" &&
       length(azurerm_linux_function_app.worker) == 0 &&
-      azuread_service_principal.api.app_role_assignment_required &&
+      !azuread_service_principal.api.app_role_assignment_required &&
       !azuread_service_principal.spa.app_role_assignment_required &&
       length(azuread_app_role_assignment.operator) == 0
     )

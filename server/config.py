@@ -19,6 +19,7 @@ class Settings(BaseModel):
     api_client_id: str = Field("", alias="ENTRA_API_CLIENT_ID")
     spa_client_id: str = Field("", alias="ENTRA_SPA_CLIENT_ID")
     mode: Literal["stub", "live"] = Field("stub", alias="COMMVAULT_MODE")
+    demo_operations: Literal["true", "false"] = Field("true", alias="ALLOW_SIGNED_IN_DEMO_OPERATIONS")
     live_operations: Literal["true", "false"] = Field("false", alias="ENABLE_LIVE_OPERATIONS")
     commvault_base_url: str = Field("", alias="COMMVAULT_BASE_URL")
     commvault_auth_header: Literal["Authorization", "Authtoken"] = Field("Authorization", alias="COMMVAULT_AUTH_HEADER")

@@ -26,7 +26,9 @@ from server.runtime import upstream_client
 from server.storage import AzureRepository, Conflict, MemoryRepository, StorageUnavailable, REQUEST_LEASE_RENEWAL_SECONDS
 from test_app import IDENTITY, LocalKeys, disable, private_key, token
 
-CONFIG = Settings.from_env({**IDENTITY, "APP_ENV": "test", "EXECUTION_MODE": "queued"})
+CONFIG = Settings.from_env({
+    **IDENTITY, "APP_ENV": "test", "EXECUTION_MODE": "queued", "ALLOW_SIGNED_IN_DEMO_OPERATIONS": "false",
+})
 
 
 class Client:

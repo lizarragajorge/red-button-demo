@@ -18,6 +18,12 @@ class Actor:
     tenant_id: str
 
 
+def can_disable(actor: Actor, settings: Settings) -> bool:
+    if settings.mode == "stub":
+        return settings.demo_operations == "true" or "BackupOperator" in actor.roles
+    return "BackupOperator" in actor.roles and settings.live_operations == "true"
+
+
 class TokenVerifier(Protocol):
     async def verify(self, token: str) -> Actor: ...
 

@@ -3,6 +3,9 @@ locals {
   scope_id         = uuidv5("url", "https://${var.app_name}.azurewebsites.net/access_as_user")
   operator_role_id = uuidv5("url", "https://${var.app_name}.azurewebsites.net/BackupOperator")
   tags             = merge({ application = "red-button-demo", managed_by = "terraform" }, var.tags)
+  api_assignment_required = var.api_assignment_required != null ? var.api_assignment_required : !(
+    var.commvault_mode == "stub" && var.allow_signed_in_demo_operations
+  )
   multi_tenant_app_settings = var.enable_multi_tenant ? {
     ENTRA_MULTI_TENANT       = "true"
     ENTRA_ALLOWED_TENANT_IDS = join(",", sort(distinct([for id in var.allowed_tenant_ids : try(lower(id), "")])))
@@ -23,7 +26,7 @@ resource "azuread_application" "api" {
       type                       = "Admin"
       enabled                    = true
       admin_consent_display_name = "Access Red Button as the signed-in user"
-      admin_consent_description  = "Access the Red Button API on behalf of the signed-in user; operations additionally require BackupOperator."
+      admin_consent_description  = "Access the Red Button API as the signed-in user. Simulation may be available to all signed-in users; live operations require BackupOperator."
     }
   }
 
@@ -77,7 +80,7 @@ resource "azuread_application_pre_authorized" "spa" {
 resource "azuread_service_principal" "api" {
   client_id                    = azuread_application.api.client_id
   owners                       = [data.azurerm_client_config.current.object_id]
-  app_role_assignment_required = var.api_assignment_required
+  app_role_assignment_required = local.api_assignment_required
 }
 
 resource "azuread_service_principal" "spa" {

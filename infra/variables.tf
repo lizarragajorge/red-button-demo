@@ -108,7 +108,7 @@ variable "allowed_tenant_ids" {
 }
 
 variable "operator_object_ids" {
-  description = "Home-tenant USER object UUIDs granted BackupOperator on the local API enterprise app. External tenant admins manage their own assignments. Empty means no local operators."
+  description = "Home-tenant USER object UUIDs granted BackupOperator on the local API enterprise app. External tenant admins manage their own assignments. Empty means no local BackupOperator assignments."
   type        = set(string)
   default     = []
 
@@ -119,9 +119,9 @@ variable "operator_object_ids" {
 }
 
 variable "api_assignment_required" {
-  description = "Restrict API token issuance to assigned users. Disabling does not bypass backend role checks."
+  description = "Override API assignment requirements. Null allows signed-in demo users in open stub mode and requires assignment otherwise. Live mutations always require BackupOperator."
   type        = bool
-  default     = true
+  default     = null
 }
 
 variable "spa_assignment_required" {
@@ -139,6 +139,13 @@ variable "commvault_mode" {
     condition     = contains(["stub", "live"], var.commvault_mode)
     error_message = "commvault_mode must be stub or live."
   }
+}
+
+variable "allow_signed_in_demo_operations" {
+  description = "Allow any authenticated approved-tenant user to operate the simulator. Has no effect on live operations, which require BackupOperator and the live gate."
+  type        = bool
+  default     = true
+  nullable    = false
 }
 
 variable "commvault_base_url" {

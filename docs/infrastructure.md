@@ -35,7 +35,8 @@ been provisioned.
   alone does not instrument FastAPI. No unverified agent or restore is enabled.
 - Workspace retention is 30 days with a 1 GB/day ingestion cap. The cap is not a
   hard spending guarantee and can interrupt diagnostics when reached.
-- Two single-tenant Entra registrations represent the API and the public SPA.
+- Two Entra registrations represent the API and the public SPA; they remain
+  single-tenant by default (see opt-in organizational multi-tenant access below).
   The API requests v2 access tokens, exposes `api://<api-client-id>/access_as_user`,
   and defines the user app role `BackupOperator`. Its v2 audience is the API
   **client GUID**, not the `api://` scope prefix. The SPA uses authorization code
@@ -66,16 +67,61 @@ Network-private production deployments require a separate design
 for VNet integration, private endpoints, DNS, and deployment ingress. Do not simply
 disable vault networking: App Service must be able to resolve its references.
 
-## Opt-in queued three-tier mode (not deployed by these changes)
+## Opt-in queued three-tier mode
 
 `enable_three_tier = false` and `enable_gateway_ingress = false` preserve the
 existing synchronous hosted demo. Neither storage, Functions, a gateway, nor
-queued-mode settings are introduced until explicitly enabled. These additions
-were validated locally with provider mocks, **not applied or deployed to Azure**.
+queued-mode settings are introduced until explicitly enabled. The defaults are
+for a fresh receiving-team deployment, not a statement about the resources
+already running in a particular subscription.
+
+### Storage networking switch
+
+The receiving team chooses **one Terraform boolean** in its own tfvars file.
+Copy `infra/terraform.tfvars.example`, not another team's local tfvars or state.
+
+**Simpler setup, where public storage endpoints are permitted:**
+
+```hcl
+enable_three_tier                  = true
+enable_private_storage_networking = false
+```
+
+**Private-only storage, where required by the receiving environment:**
+
+```hcl
+enable_three_tier                  = true
+enable_private_storage_networking = true
+```
+
+| Behavior | `false` (default) | `true` |
+|---|---|---|
+| Storage network access | Public HTTPS endpoints | Private Blob/Queue endpoints; public access disabled |
+| Extra networking | None for storage | Four private endpoints, two private DNS zones/links, dedicated VNet/subnets, both apps integrated |
+| Authentication | Managed identity + Entra tokens | Same |
+| Authorization | Scoped RBAC | Same |
+| Anonymous blob / shared-key access | Disabled | Disabled |
+
+The toggle covers **both work and Functions host storage**. It does not change
+the API/UI code, storage data model, queue processing, app roles, or live-write
+gate. Application Gateway, APIM, and Key Vault networking remain independent.
+No NSP is provisioned.
+
+This is a **deployment-time switch**, not an in-app switch or automatic policy
+detection. Review `terraform plan` before applying it. A receiving subscription
+that enforces private-only access must use `true` unless an approved alternative
+is available. On an existing deployment, switching to `false` removes networking
+resources and can interrupt connectivity; follow the
+[migration precautions](#changing-storage-networking-on-an-existing-deployment)
+before applying. Preserve `activate_queued_execution` separately; changing the
+storage network choice must not accidentally activate or pause processing.
+
+### Queued resources and permissions
 
 With `enable_three_tier = true`:
 
-- The existing web app gets `EXECUTION_MODE=queued` and `STORAGE_ACCOUNT_NAME`.
+- When `activate_queued_execution=true`, the existing web app gets
+  `EXECUTION_MODE=queued` and `STORAGE_ACCOUNT_NAME`.
   Its system-assigned identity can read/write request blobs, read inventory, and
   send messages to the `requests` queue; it cannot consume that queue.
 - One Standard LRS StorageV2 **work** account contains private Blob containers
@@ -83,8 +129,9 @@ With `enable_three_tier = true`:
   `requests-poison`. Public blob access and shared-key authentication are disabled;
   HTTPS/TLS 1.2 and OAuth defaults are enabled. AzureRM 5.6 resources use ARM
   container/queue IDs, so initial creation does not wait for the application's
-  data-plane RBAC propagation. The endpoints remain public **authenticated**
-  endpoints, not private endpoints: private containers do not mean private networking.
+  data-plane RBAC propagation. The networking switch above determines whether
+  endpoints are public or private; private containers alone do not mean private
+  networking.
 - A separate **host** storage account isolates Functions host leases/receipts.
   Host account-level `Storage Blob Data Owner` and `Storage Queue Data Contributor`
   do not grant access to application data. No account-management role is assigned
@@ -366,6 +413,53 @@ consent**. Do not confuse this with granting Graph privileges to the provisionin
 identity. No Graph delegated permission is required by the demo SPA itself.
 The configuration does not automatically create tenant-wide OAuth consent grants.
 Consent does not grant BackupOperator; both authorization requirements matter.
+
+### Opt-in organizational multi-tenant access
+
+The default `enable_multi_tenant=false` and `allowed_tenant_ids=[]` retain both
+registrations' `AzureADMyOrg` audience and existing app settings. To approve
+external organizations, set both inputs together in your local tfvars:
+
+```hcl
+enable_multi_tenant = true
+allowed_tenant_ids  = ["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]
+```
+
+Supply 1–20 **additional tenant GUIDs**, not domains, tenant names, `common`, or
+`organizations`. IDs must use the canonical hyphenated GUID format; letter case
+is accepted and normalized to lowercase. The home tenant from the Azure provider
+is always implicitly allowed and must not be listed. Personal Microsoft accounts
+and the consumers tenant `9188040d-6c67-4c5b-b112-36a304b66dad` are not supported.
+Terraform rejects an empty allowlist when enabled, a nonempty one when disabled,
+malformed/consumer/home IDs, and lists exceeding 20 entries.
+
+When enabled, both API and SPA use `AzureADMultipleOrgs`. The API identifier URI
+remains `api://<api-client-guid>`; the v2 access-token audience remains the API
+client GUID. Terraform adds `ENTRA_MULTI_TENANT=true` and comma-separated,
+lowercase, sorted `ENTRA_ALLOWED_TENANT_IDS` to the web app and, if provisioned,
+the Functions worker. When disabled these two settings are omitted, preserving
+default plans; the runtime defaults are `false` and an empty string. The browser
+uses the `organizations` authority only when enabled. The API verifies the
+token's tenant and tenant-specific issuer against the home tenant plus allowlist,
+in addition to signature, expiry, audience, and delegated scope checks. A
+multi-tenant registration alone does not allow arbitrary organizations.
+
+Approved external-tenant users with the delegated `access_as_user` scope can
+read data; **actions still require the API's `BackupOperator` role**. Allowlisting
+an organization is therefore a deliberate read-access trust decision, not an
+operator assignment. Neither allowlisting nor admin consent grants that role.
+The scope remains **admin-consent-only**. External tenant administrators must
+approve consent and manage their own API/SPA enterprise applications, assignment
+policies, and remote service-principal role assignments. SPA preauthorization
+does not replace an external organization's consent and assignment policies.
+
+Enabling this option does **not** weaken the home tenant's
+`api_assignment_required=true` default or change `spa_assignment_required`
+(false by default). `operator_object_ids` provisions only home-tenant API
+operator assignments (and optional local SPA access); do not put external user
+object IDs in it. This Terraform does not create or administer remote enterprise
+applications, remote consent grants, or remote role assignments. Arrange those
+with each external administrator and obtain fresh tokens after assignment changes.
 
 ## Build and deploy the application
 
@@ -674,7 +768,30 @@ configuration drift. Monitor shared-plan CPU/memory and size it for both
 applications; B1 is the minimum, not a guarantee of adequate combined capacity.
 Changing the plan requires `Microsoft.Web/serverFarms/write` permission.
 
-If subscription policy disables storage public networking, set
+### Changing storage networking on an existing deployment
+
+For the simpler demo setup, leave `enable_private_storage_networking=false`
+(the default). Both storage accounts use public HTTPS endpoints with managed
+identity and scoped RBAC; anonymous blob access and shared-key authentication
+remain disabled. This does not make the stored data public and needs no storage
+private endpoints, private DNS zones, or app VNet integration.
+
+When switching an existing private deployment back to this mode, first confirm
+that public storage networking is allowed. Review the plan for enabling both
+storage endpoints, disconnecting both apps from the storage VNet, and removing
+only the dedicated storage private endpoints, DNS, and network resources. Keep
+storage accounts, containers, queues, identities, and the queued activation
+state unchanged. Verify storage access after the change; do not delete private
+connectivity if public access is blocked.
+
+An Azure Policy with a `modify` effect can accept a storage update while
+rewriting `publicNetworkAccess` back to `Disabled`. Do not rely only on
+Terraform reporting a successful apply: re-read both accounts before removing
+private connectivity. If policy forces private-only access, an authorized
+policy exception or a different approved deployment environment is needed for
+the public-endpoint setup; do not bypass organizational controls.
+
+If a confirmed organizational requirement calls for private-only storage, set
 `enable_private_storage_networking=true` together with `enable_three_tier=true`.
 This keeps both storage accounts private and provisions four Blob/Queue private
 endpoints, two private DNS zones/links, and outbound VNet integration for both
@@ -685,6 +802,8 @@ subnet. This is independent of optional Application Gateway ingress and does not
 make the web UI private or add private Key Vault connectivity. Private endpoints,
 DNS, and data processing add costs. Do not reopen storage to work around policy.
 Verify host storage access and timer/queue execution after DNS/RBAC propagation.
+
+### Packaging the Function app
 
 Do not upload the web zip to the worker, or the worker zip to the web app.
 Build the worker on the same approved Linux x86_64/Python 3.12 builder with

@@ -10,14 +10,29 @@ support_url     = ""
 # User object IDs, not application/client IDs. No users are assigned by default.
 operator_object_ids = []
 
+# Organizational multi-tenant auth is opt-in. The home tenant is always allowed.
+# Enable both settings together; list 1-20 additional tenant GUIDs, not domains.
+# External admins own consent and BackupOperator assignments in their tenants.
+enable_multi_tenant = false
+allowed_tenant_ids  = []
+# enable_multi_tenant = true
+# allowed_tenant_ids  = ["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]
+
 service_plan_sku         = "B1"
 api_assignment_required = true
 spa_assignment_required = false
 commvault_mode           = "stub"
 enable_live_operations   = false
 # Opt-in only: leaves the existing hosted synchronous demo unchanged by default.
-enable_three_tier        = false
-enable_gateway_ingress   = false
+enable_three_tier                  = false
+enable_gateway_ingress             = false
+
+# Storage networking switch (requires enable_three_tier=true for private mode).
+# false: simpler public HTTPS endpoints; managed identity/RBAC still required.
+# true: private endpoints + private DNS + outbound app VNet integration.
+# Choose true when the receiving subscription requires private-only storage.
+enable_private_storage_networking = false
+# storage_vnet_cidr = "10.73.0.0/16" # Private mode only; choose a non-overlapping range.
 
 # Existing APIM integration (no new paid APIM instance or API routes are created).
 # Requires enable_three_tier=true, commvault_mode="live", empty commvault_base_url,
@@ -39,6 +54,3 @@ enable_gateway_ingress   = false
 # commvault_base_url    = "https://commvault.example.com/commandcenter/api"
 # commvault_auth_header = "Authtoken"
 # commvault_secret_name = "commvault-auth"
- # For subscriptions that prohibit public storage endpoints:
- # enable_private_storage_networking = true
- # storage_vnet_cidr = "10.73.0.0/16"

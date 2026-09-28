@@ -8,9 +8,11 @@ playground, a production incident-response system, or a complete Commvault
 emulator. Keep the simulated environment and operational safeguards explicit.
 
 Public source access does not grant access to a hosted deployment. Each operator
-needs approved tenant membership or guest onboarding and the required app
-assignments. Do not publish invitations, credentials, tokens, server inventories,
-or screenshots containing real client information.
+needs approved home-tenant/guest access or an explicitly allowlisted organizational
+tenant, the required consent and app access, and the API's `BackupOperator` role.
+Allowlisting a tenant does not grant its users permission to perform operations.
+Do not publish invitations, credentials, tokens, server inventories, or
+screenshots containing real client information.
 
 ## Approval and licensing
 
@@ -81,7 +83,9 @@ guarantee, and mock tests are not cloud integration tests.
 ## Before sharing a deployment
 
 Complete a hosted sign-in as an assigned operator, exercise a simulated request,
-and verify an unassigned user is rejected. Keep `COMMVAULT_MODE=stub` and
+and verify users without `BackupOperator` cannot submit operations. If multi-tenant
+access is enabled, also verify an unapproved tenant is rejected and confirm each
+approved organization's consent/access policies. Keep `COMMVAULT_MODE=stub` and
 `ENABLE_LIVE_OPERATIONS=false`. Decide who may access logs and copy support
 details. Review cost and cleanup instructions in the
 [infrastructure guide](infrastructure.md#costs-checks-and-cleanup).

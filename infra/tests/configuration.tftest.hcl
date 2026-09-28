@@ -133,6 +133,8 @@ variables {
   operator_object_ids                     = []
   api_assignment_required                 = true
   spa_assignment_required                 = false
+  enable_multi_tenant                     = false
+  allowed_tenant_ids                      = []
   commvault_mode                          = "stub"
   enable_live_operations                  = false
   key_vault_public_network_access_enabled = true
@@ -162,6 +164,8 @@ run "secure_stub_defaults" {
       !contains(keys(azurerm_linux_web_app.demo.app_settings), "NPM_CONFIG_PRODUCTION") &&
       azurerm_linux_web_app.demo.app_settings["ENTRA_API_CLIENT_ID"] == azuread_application.api.client_id &&
       azurerm_linux_web_app.demo.app_settings["ENTRA_TENANT_ID"] == data.azurerm_client_config.current.tenant_id &&
+      !contains(keys(azurerm_linux_web_app.demo.app_settings), "ENTRA_MULTI_TENANT") &&
+      !contains(keys(azurerm_linux_web_app.demo.app_settings), "ENTRA_ALLOWED_TENANT_IDS") &&
       azurerm_linux_web_app.demo.app_settings["PUBLIC_ORIGIN"] == output.app_url
     )
     error_message = "Default app settings must match the backend contract without live credentials."
@@ -191,6 +195,9 @@ run "secure_stub_defaults" {
       azuread_service_principal.api.app_role_assignment_required &&
       !azuread_service_principal.spa.app_role_assignment_required &&
       length(azuread_app_role_assignment.operator) == 0 &&
+      azuread_application.api.sign_in_audience == "AzureADMyOrg" &&
+      azuread_application.spa.sign_in_audience == "AzureADMyOrg" &&
+      azuread_application_identifier_uri.api.identifier_uri == "api://${azuread_application.api.client_id}" &&
       azuread_application.api.api[0].requested_access_token_version == 2 &&
       one(azuread_application.api.app_role).value == "BackupOperator" &&
       one(azuread_application.api.app_role).allowed_member_types == toset(["User"]) &&
@@ -381,13 +388,24 @@ run "queued_storage_runtime_and_rbac" {
       alltrue([for account in azurerm_storage_account.three_tier :
         !account.shared_access_key_enabled && !account.allow_nested_items_to_be_public &&
         account.https_traffic_only_enabled && account.default_to_oauth_authentication &&
-        account.min_tls_version == "TLS1_2"
+        account.min_tls_version == "TLS1_2" && account.public_network_access == "Enabled"
       ]) &&
       azurerm_storage_account.three_tier["host"].name != azurerm_storage_account.three_tier["work"].name &&
       azurerm_linux_web_app.demo.app_settings["EXECUTION_MODE"] == "queued" &&
       azurerm_linux_web_app.demo.app_settings["STORAGE_ACCOUNT_NAME"] == azurerm_storage_account.three_tier["work"].name
     )
     error_message = "Queued mode requires isolated identity-only host/work storage, private containers and two queues."
+  }
+  assert {
+    condition = (
+      length(azurerm_private_endpoint.storage) == 0 &&
+      length(azurerm_private_dns_zone.storage) == 0 &&
+      length(azurerm_private_dns_zone_virtual_network_link.storage) == 0 &&
+      length(azurerm_virtual_network.storage) == 0 &&
+      azurerm_linux_web_app.demo.virtual_network_subnet_id == null &&
+      azurerm_linux_function_app.worker[0].virtual_network_subnet_id == null
+    )
+    error_message = "Default queued storage must use authenticated public endpoints without provisioning private networking."
   }
   assert {
     condition = (
@@ -398,6 +416,8 @@ run "queued_storage_runtime_and_rbac" {
       azurerm_linux_function_app.worker[0].site_config[0].application_stack[0].python_version == "3.12" &&
       azurerm_linux_function_app.worker[0].storage_uses_managed_identity &&
       azurerm_linux_function_app.worker[0].storage_account_access_key == null &&
+      !contains(keys(azurerm_linux_function_app.worker[0].app_settings), "ENTRA_MULTI_TENANT") &&
+      !contains(keys(azurerm_linux_function_app.worker[0].app_settings), "ENTRA_ALLOWED_TENANT_IDS") &&
       azurerm_linux_function_app.worker[0].https_only &&
       !azurerm_linux_function_app.worker[0].ftp_publish_basic_authentication_enabled &&
       !azurerm_linux_function_app.worker[0].webdeploy_publish_basic_authentication_enabled &&
@@ -680,4 +700,158 @@ run "pause_preserves_resources_and_sync_web" {
     )
     error_message = "Pausing must retain durable resources, stop the worker, and leave the web in safe synchronous mode."
   }
+}
+
+run "multi_tenant_org_allowlist_and_runtime" {
+  command = plan
+  variables {
+    enable_multi_tenant = true
+    enable_three_tier   = true
+    allowed_tenant_ids = [
+      "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+      "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    ]
+    operator_object_ids     = ["cccccccc-cccc-cccc-cccc-cccccccccccc"]
+    spa_assignment_required = true
+  }
+  assert {
+    condition = (
+      azuread_application.api.sign_in_audience == "AzureADMultipleOrgs" &&
+      azuread_application.spa.sign_in_audience == "AzureADMultipleOrgs" &&
+      azuread_application_identifier_uri.api.identifier_uri == "api://${azuread_application.api.client_id}" &&
+      azuread_application.api.api[0].requested_access_token_version == 2 &&
+      one(azuread_application.api.api[0].oauth2_permission_scope).type == "Admin" &&
+      one(azuread_application.api.api[0].oauth2_permission_scope).value == "access_as_user" &&
+      one(azuread_application.api.app_role).value == "BackupOperator" &&
+      azuread_application_pre_authorized.spa.permission_ids == toset([local.scope_id]) &&
+      azuread_service_principal.api.app_role_assignment_required &&
+      azuread_service_principal.spa.app_role_assignment_required &&
+      length(azuread_app_role_assignment.operator) == 1 &&
+      length(azuread_app_role_assignment.spa_access) == 1 &&
+      azuread_app_role_assignment.operator["cccccccc-cccc-cccc-cccc-cccccccccccc"].resource_object_id == azuread_service_principal.api.object_id &&
+      azuread_app_role_assignment.operator["cccccccc-cccc-cccc-cccc-cccccccccccc"].app_role_id == local.operator_role_id
+    )
+    error_message = "Organizational multi-tenancy must preserve the API identifier, admin-only scope, BackupOperator and home assignment gates."
+  }
+  assert {
+    condition = alltrue([
+      for settings in [azurerm_linux_web_app.demo.app_settings, azurerm_linux_function_app.worker[0].app_settings] : (
+        settings["ENTRA_MULTI_TENANT"] == "true" &&
+        settings["ENTRA_ALLOWED_TENANT_IDS"] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa,bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" &&
+        settings["ENTRA_TENANT_ID"] == data.azurerm_client_config.current.tenant_id &&
+        settings["ENTRA_API_CLIENT_ID"] == azuread_application.api.client_id &&
+        settings["ENTRA_SPA_CLIENT_ID"] == azuread_application.spa.client_id &&
+        settings["ENABLE_LIVE_OPERATIONS"] == "false"
+      )
+    ])
+    error_message = "Web and worker must receive identical normalized additional-tenant allowlists while retaining home identity and operational safety."
+  }
+}
+
+run "multi_tenant_sync_and_maximum_allowlist" {
+  command = plan
+  variables {
+    enable_multi_tenant = true
+    allowed_tenant_ids  = [for i in range(20) : format("aaaaaaaa-aaaa-aaaa-aaaa-%012d", i)]
+  }
+  assert {
+    condition = (
+      length(split(",", azurerm_linux_web_app.demo.app_settings["ENTRA_ALLOWED_TENANT_IDS"])) == 20 &&
+      azurerm_linux_web_app.demo.app_settings["ENTRA_MULTI_TENANT"] == "true" &&
+      length(azurerm_linux_function_app.worker) == 0 &&
+      azuread_service_principal.api.app_role_assignment_required &&
+      !azuread_service_principal.spa.app_role_assignment_required &&
+      length(azuread_app_role_assignment.operator) == 0
+    )
+    error_message = "The 20-tenant boundary must work in synchronous mode without relaxing defaults or creating operators."
+  }
+}
+
+run "reject_multi_tenant_without_additional_tenants" {
+  command = plan
+  variables {
+    enable_multi_tenant = true
+  }
+  expect_failures = [var.allowed_tenant_ids]
+}
+
+run "reject_allowlist_without_multi_tenant" {
+  command = plan
+  variables {
+    allowed_tenant_ids = ["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]
+  }
+  expect_failures = [var.allowed_tenant_ids]
+}
+
+run "reject_tenant_domain" {
+  command = plan
+  variables {
+    enable_multi_tenant = true
+    allowed_tenant_ids  = ["example.onmicrosoft.com"]
+  }
+  expect_failures = [var.allowed_tenant_ids]
+}
+
+run "reject_noncanonical_tenant_guid" {
+  command = plan
+  variables {
+    enable_multi_tenant = true
+    allowed_tenant_ids  = ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+  }
+  expect_failures = [var.allowed_tenant_ids]
+}
+
+run "reject_tenant_guid_whitespace" {
+  command = plan
+  variables {
+    enable_multi_tenant = true
+    allowed_tenant_ids  = [" aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]
+  }
+  expect_failures = [var.allowed_tenant_ids]
+}
+
+run "reject_null_tenant_guid" {
+  command = plan
+  variables {
+    enable_multi_tenant = true
+    allowed_tenant_ids  = [null]
+  }
+  expect_failures = [var.allowed_tenant_ids]
+}
+
+run "reject_consumers_tenant" {
+  command = plan
+  variables {
+    enable_multi_tenant = true
+    allowed_tenant_ids  = ["9188040d-6c67-4c5b-b112-36a304b66dad"]
+  }
+  expect_failures = [var.allowed_tenant_ids]
+}
+
+run "reject_uppercase_consumers_tenant" {
+  command = plan
+  variables {
+    enable_multi_tenant = true
+    allowed_tenant_ids  = ["9188040D-6C67-4C5B-B112-36A304B66DAD"]
+  }
+  expect_failures = [var.allowed_tenant_ids]
+}
+
+run "reject_home_tenant_as_additional" {
+  command = plan
+  variables {
+    enable_multi_tenant = true
+    allowed_tenant_ids  = ["11111111-1111-1111-1111-111111111111"]
+  }
+  expect_failures = [var.allowed_tenant_ids]
+}
+
+run "reject_more_than_twenty_additional_tenants" {
+  command = plan
+  variables {
+    enable_multi_tenant = true
+    allowed_tenant_ids  = [for i in range(21) : format("aaaaaaaa-aaaa-aaaa-aaaa-%012d", i)]
+  }
+  expect_failures = [var.allowed_tenant_ids]
 }

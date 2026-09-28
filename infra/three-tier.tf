@@ -116,7 +116,7 @@ resource "azurerm_linux_function_app" "worker" {
     ENABLE_ORYX_BUILD               = "false"
     }, var.commvault_mode == "live" ? {
     COMMVAULT_AUTH_VALUE = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.demo.vault_uri}secrets/${var.commvault_secret_name}/)"
-  } : {})
+  } : {}, local.multi_tenant_app_settings)
 }
 
 resource "azurerm_role_assignment" "worker_blobs" {

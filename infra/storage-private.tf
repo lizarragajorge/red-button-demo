@@ -1,5 +1,5 @@
 variable "enable_private_storage_networking" {
-  description = "Use private Blob/Queue endpoints and outbound app VNet integration; keeps both storage accounts closed to public traffic."
+  description = "Storage networking switch: false uses public HTTPS endpoints; true adds private endpoints, DNS and outbound app VNet integration. Both modes require managed identity/RBAC and disable anonymous and shared-key access. Private mode requires enable_three_tier."
   type        = bool
   default     = false
   validation {

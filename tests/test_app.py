@@ -409,7 +409,7 @@ async def test_upstream_failures_are_explicit_and_unexpected_errors_are_redacted
 def test_python_launcher_respects_port_environment_and_reload_guard(monkeypatch):
     from server import __main__ as launcher
     for key, value in CONFIG.model_dump(by_alias=True).items():
-        monkeypatch.setenv(key, str(value))
+        monkeypatch.setenv(key, ",".join(value) if isinstance(value, tuple) else str(value))
     monkeypatch.setenv("PORT", "8123")
     monkeypatch.setattr("sys.argv", ["server", "--reload"])
     calls = []

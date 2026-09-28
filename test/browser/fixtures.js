@@ -15,15 +15,17 @@ export const servers = [
 export async function mockApp(page, {
   configured = true, canDisable = true, mode = "stub", signedIn = true,
   displayName = "Red Button", supportUrl = "", executionMode = "sync", accountId = "fixture-user",
+  multiTenant = false, accountTenant = publicConfig.tenantId, allowedTenantIds = [publicConfig.tenantId],
   inventory = { updatedAt: new Date().toISOString(), stale: false, refreshError: null },
 } = {}) {
-  const account = signedIn ? { name: "Demo operator", username: "operator@example.invalid", homeAccountId: accountId } : null;
+  const account = signedIn ? { name: "Demo operator", username: "operator@example.invalid", homeAccountId: accountId, tenantId: accountTenant } : null;
   // Replace MSAL only at Vite's test boundary; production has no auth bypass.
   await page.route("**/node_modules/.vite/deps/@azure_msal-browser.js*", (route) => route.fulfill({
     contentType: "application/javascript",
     body: `
       export class InteractionRequiredAuthError extends Error {}
       export class PublicClientApplication {
+        constructor(config) { globalThis.fixtureMsalAuthority = config.auth.authority; }
         async initialize() {}
         async handleRedirectPromise() { return null; }
         getActiveAccount() { return ${JSON.stringify(account)}; }
@@ -34,7 +36,7 @@ export async function mockApp(page, {
     `,
   }));
   await page.route("**/api/config", (route) => route.fulfill({
-    json: { ...publicConfig, mode, identityConfigured: configured, displayName, supportUrl, executionMode },
+    json: { ...publicConfig, mode, identityConfigured: configured, displayName, supportUrl, executionMode, multiTenant, allowedTenantIds },
   }));
   await page.route("**/api/me", (route) => route.fulfill({ json: { canDisable } }));
   await page.route("**/api/servers?*", (route) => {

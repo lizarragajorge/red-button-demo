@@ -3,11 +3,15 @@ locals {
   scope_id         = uuidv5("url", "https://${var.app_name}.azurewebsites.net/access_as_user")
   operator_role_id = uuidv5("url", "https://${var.app_name}.azurewebsites.net/BackupOperator")
   tags             = merge({ application = "red-button-demo", managed_by = "terraform" }, var.tags)
+  multi_tenant_app_settings = var.enable_multi_tenant ? {
+    ENTRA_MULTI_TENANT       = "true"
+    ENTRA_ALLOWED_TENANT_IDS = join(",", sort(distinct([for id in var.allowed_tenant_ids : try(lower(id), "")])))
+  } : {}
 }
 
 resource "azuread_application" "api" {
   display_name     = "${var.app_name}-api"
-  sign_in_audience = "AzureADMyOrg"
+  sign_in_audience = var.enable_multi_tenant ? "AzureADMultipleOrgs" : "AzureADMyOrg"
   owners           = [data.azurerm_client_config.current.object_id]
 
   api {
@@ -44,7 +48,7 @@ resource "azuread_application_identifier_uri" "api" {
 
 resource "azuread_application" "spa" {
   display_name     = "${var.app_name}-spa"
-  sign_in_audience = "AzureADMyOrg"
+  sign_in_audience = var.enable_multi_tenant ? "AzureADMultipleOrgs" : "AzureADMyOrg"
   owners           = [data.azurerm_client_config.current.object_id]
 
   single_page_application {

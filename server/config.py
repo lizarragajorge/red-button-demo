@@ -14,6 +14,8 @@ class Settings(BaseModel):
     display_name: str = Field("Red Button", alias="APP_DISPLAY_NAME", min_length=1, max_length=60)
     support_url: str = Field("", alias="SUPPORT_URL", max_length=2048)
     tenant_id: str = Field("", alias="ENTRA_TENANT_ID")
+    multi_tenant: Literal["true", "false"] = Field("false", alias="ENTRA_MULTI_TENANT")
+    allowed_tenant_ids: tuple[str, ...] = Field((), alias="ENTRA_ALLOWED_TENANT_IDS")
     api_client_id: str = Field("", alias="ENTRA_API_CLIENT_ID")
     spa_client_id: str = Field("", alias="ENTRA_SPA_CLIENT_ID")
     mode: Literal["stub", "live"] = Field("stub", alias="COMMVAULT_MODE")
@@ -26,6 +28,32 @@ class Settings(BaseModel):
     storage_connection_string: str = Field("", alias="AZURE_STORAGE_CONNECTION_STRING", repr=False)
     inventory_max_age_seconds: int = Field(900, alias="INVENTORY_MAX_AGE_SECONDS", ge=1)
     inventory_refresh_schedule: str = Field("0 */5 * * * *", alias="INVENTORY_REFRESH_SCHEDULE")
+
+    @field_validator("allowed_tenant_ids", mode="before")
+    @classmethod
+    def parse_allowed_tenants(cls, value):
+        if isinstance(value, str):
+            value = [] if not value.strip() else value.split(",")
+        if not isinstance(value, (list, tuple)) or len(value) > 20:
+            raise ValueError("Provide at most 20 additional Entra tenant GUIDs.")
+        tenants = []
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError("Allowed tenants must be GUIDs.")
+            normalized = str(UUID(item.strip()))
+            if item.strip().lower() != normalized or normalized == "9188040d-6c67-4c5b-b112-36a304b66dad":
+                raise ValueError("Only explicit organizational tenant GUIDs are allowed.")
+            tenants.append(normalized)
+        if len(set(tenants)) != len(tenants):
+            raise ValueError("Allowed tenant GUIDs must be unique.")
+        return tuple(tenants)
+
+    @property
+    def trusted_tenant_ids(self) -> frozenset[str]:
+        return frozenset(
+            ([self.tenant_id] if self.tenant_id else [])
+            + (list(self.allowed_tenant_ids) if self.multi_tenant == "true" else [])
+        )
 
     @field_validator("display_name")
     @classmethod
@@ -70,6 +98,15 @@ class Settings(BaseModel):
         for value in (self.tenant_id, self.api_client_id, self.spa_client_id):
             if value:
                 UUID(value)
+        if self.tenant_id:
+            self.tenant_id = str(UUID(self.tenant_id))
+            if self.tenant_id == "9188040d-6c67-4c5b-b112-36a304b66dad":
+                raise ValueError("The home tenant must be an organizational tenant.")
+        if self.multi_tenant == "true":
+            if not self.identity_configured or not set(self.allowed_tenant_ids).difference({self.tenant_id}):
+                raise ValueError("Multi-tenant access requires configured identity and an explicit additional tenant.")
+        elif self.allowed_tenant_ids:
+            raise ValueError("Additional tenants require ENTRA_MULTI_TENANT=true.")
         origin = urlsplit(self.public_origin)
         local_http = origin.scheme == "http" and origin.hostname == "localhost"
         if (

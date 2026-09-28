@@ -68,8 +68,47 @@ variable "service_plan_sku" {
   }
 }
 
+variable "enable_multi_tenant" {
+  description = "Opt in to organizational multi-tenant sign-in with an explicit additional-tenant allowlist. The home tenant is always allowed."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "allowed_tenant_ids" {
+  description = "Up to 20 additional organizational tenant GUIDs. Requires enable_multi_tenant; omit the implicitly allowed home tenant."
+  type        = set(string)
+  default     = []
+  nullable    = false
+
+  validation {
+    condition     = alltrue([for id in var.allowed_tenant_ids : can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", id))])
+    error_message = "Every allowed_tenant_ids entry must be a canonical hyphenated tenant GUID."
+  }
+
+  validation {
+    condition     = alltrue([for id in var.allowed_tenant_ids : try(lower(id) != "9188040d-6c67-4c5b-b112-36a304b66dad", false)])
+    error_message = "allowed_tenant_ids must not include the Microsoft personal-account consumers tenant."
+  }
+
+  validation {
+    condition     = length(var.allowed_tenant_ids) <= 20
+    error_message = "allowed_tenant_ids may contain at most 20 additional tenants."
+  }
+
+  validation {
+    condition     = var.enable_multi_tenant ? length(var.allowed_tenant_ids) > 0 : length(var.allowed_tenant_ids) == 0
+    error_message = "enable_multi_tenant requires at least one additional tenant; allowed_tenant_ids must be empty when multi-tenant sign-in is disabled."
+  }
+
+  validation {
+    condition     = alltrue([for id in var.allowed_tenant_ids : try(lower(id) != lower(data.azurerm_client_config.current.tenant_id), false)])
+    error_message = "Omit the home tenant from allowed_tenant_ids; it is always allowed implicitly."
+  }
+}
+
 variable "operator_object_ids" {
-  description = "Tenant USER object UUIDs granted BackupOperator on the API. Empty means no operators."
+  description = "Home-tenant USER object UUIDs granted BackupOperator on the local API enterprise app. External tenant admins manage their own assignments. Empty means no local operators."
   type        = set(string)
   default     = []
 

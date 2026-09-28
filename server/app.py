@@ -147,6 +147,8 @@ def create_app(
             "liveOperationsEnabled": settings.live_operations == "true",
             "identityConfigured": settings.identity_configured,
             "tenantId": settings.tenant_id,
+            "multiTenant": settings.multi_tenant == "true",
+            "allowedTenantIds": sorted(settings.trusted_tenant_ids),
             "clientId": settings.spa_client_id,
             "scope": f"api://{settings.api_client_id}/access_as_user",
             "redirectUri": settings.public_origin + "/",
@@ -176,7 +178,7 @@ def create_app(
             raise HTTPException(404, "Request not found.")
         try:
             return await owned_request(
-                request.app.state.repository, str(UUID(request_id)), f"{settings.tenant_id}:{actor.oid}",
+                request.app.state.repository, str(UUID(request_id)), f"{actor.tenant_id}:{actor.oid}",
             )
         except (ValueError, RequestNotFound):
             raise HTTPException(404, "Request not found.") from None
@@ -200,7 +202,7 @@ def create_app(
             request.state.request_id = request_id
             try:
                 record = await submit(
-                    request.app.state.repository, request_id, f"{settings.tenant_id}:{actor.oid}",
+                    request.app.state.repository, request_id, f"{actor.tenant_id}:{actor.oid}",
                     settings.mode, body,
                 )
             except RequestNotFound:
@@ -210,18 +212,18 @@ def create_app(
             except InvalidSchedule:
                 raise HTTPException(400, "Re-enable time must be in the future.") from None
             except DeliveryUncertain as error:
-                audit({"event": "enqueue_uncertain", "requestId": request_id, "actorId": actor.oid})
+                audit({"event": "enqueue_uncertain", "requestId": request_id, "actorId": actor.oid, "actorTenantId": actor.tenant_id})
                 return JSONResponse({
                     "error": "Queue delivery could not be confirmed. Inspect this request before submitting again.",
                     "requestId": request_id, "request": error.record,
                 }, status_code=503, headers={"Location": f"/api/requests/{request_id}"})
-            audit({"event": "disable_queued", "requestId": request_id, "actorId": actor.oid, "mode": settings.mode})
+            audit({"event": "disable_queued", "requestId": request_id, "actorId": actor.oid, "actorTenantId": actor.tenant_id, "mode": settings.mode})
             return JSONResponse(record, status_code=202, headers={"Location": f"/api/requests/{request_id}"})
         if active_servers.intersection(body.server_ids):
             raise HTTPException(409, "An operation is already running for a selected server. Check its result before retrying.")
         active_servers.update(body.server_ids)
         results = []
-        metadata = {"requestId": request.state.request_id, "actorId": actor.oid, "mode": settings.mode}
+        metadata = {"requestId": request.state.request_id, "actorId": actor.oid, "actorTenantId": actor.tenant_id, "mode": settings.mode}
         try:
             audit({"event": "disable_requested", **metadata, "serverIds": body.server_ids, "options": body.options.model_dump(by_alias=True, exclude_none=True)})
             for server_id in body.server_ids:

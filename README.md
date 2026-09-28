@@ -39,9 +39,39 @@ Confirm ownership and disclosure approval before public release. See the
 
 An operator needs the `BackupOperator` role on the API enterprise application.
 When SPA assignment is required, assign access to that application too. The app
-is single-tenant: external participants need approved guest onboarding and
-assignments. A public URL does not grant anonymous access. Do not bypass Entra
+is single-tenant by default: external participants need approved guest onboarding
+and assignments, or the explicit organizational allowlist described below.
+A public URL does not grant anonymous access. Do not bypass Entra
 or enable live operations just to make a demonstration easier to share.
+
+### Optional corporate tenant access
+
+To allow direct sign-in from selected organizations, set
+`enable_multi_tenant=true` and `allowed_tenant_ids` to their verified Entra tenant
+GUIDs in Terraform. The home tenant remains allowed. Terraform makes both
+registrations organizational multi-tenant apps and passes the allowlist to the
+runtime. For local Python configuration, the corresponding settings are
+`ENTRA_MULTI_TENANT=true` and `ENTRA_ALLOWED_TENANT_IDS=<comma-separated-GUIDs>`.
+Single-tenant settings remain the receiving-team defaults.
+
+MSAL uses the organizational sign-in authority, but the API accepts only signed
+tokens from explicitly allowed tenants with the correct issuer, audience, client,
+and delegated scope. Email domains are **not** authorization rules; personal
+Microsoft accounts and arbitrary organizations do not gain access. Approved
+tenant guest accounts are subject to the same issuer-based rule and the tenant's
+own access policies.
+
+Each external organization's administrator must approve/admin-consent the SPA
+and API scope and configure its enterprise-app access policies. Adding a tenant
+ID here does not grant that consent or override cross-tenant/Conditional Access
+restrictions. Existing assignment requirements in the home tenant are unchanged.
+Authenticated users without `BackupOperator` can view inventory, but cannot use
+the red button; operators need that API role assigned **in the tenant issuing
+their token**. Keep broad viewing separate from narrowly assigned operations.
+Queued requests and browser recovery references are isolated by tenant and user;
+existing home-tenant request ownership stays compatible. See
+[identity deployment instructions](docs/infrastructure.md) for configuration and
+external-admin handoff.
 
 ## Architecture
 
@@ -52,6 +82,14 @@ Terraform configuration, not an automatic upgrade. Use the documented staged
 activation switch to provision without immediately cutting over the web runtime.
 Existing APIM integration requires the client's confirmed routing and
 authentication contract; the private simulated API is **not** an APIM-hosted stub.
+
+**Receiving-team storage choice:** set `enable_private_storage_networking=false`
+for simpler public HTTPS storage endpoints, or `true` for private endpoints,
+private DNS, and outbound app VNet integration. Both modes retain managed
+identity, scoped RBAC, and disabled anonymous/shared-key access. This is a
+Terraform deployment setting, not an operator UI switch. See
+[storage networking options](docs/infrastructure.md#storage-networking-switch)
+and the explicit setting in [the example configuration](infra/terraform.tfvars.example).
 
 ```text
 Browser -- MSAL / authorization code + PKCE --> Microsoft Entra ID
@@ -129,6 +167,8 @@ Copy `.env.example` to `.env` and set:
 | Setting | Meaning |
 |---|---|
 | `ENTRA_TENANT_ID` | Client's Entra tenant GUID |
+| `ENTRA_MULTI_TENANT` | `false` by default; `true` requires organizational multi-tenant registrations and an explicit additional tenant |
+| `ENTRA_ALLOWED_TENANT_IDS` | Comma-separated additional organizational tenant GUIDs; empty by default, maximum 20; home tenant always retained |
 | `ENTRA_API_CLIENT_ID` | API app registration client GUID; v2 token audience |
 | `ENTRA_SPA_CLIENT_ID` | SPA app registration client GUID |
 | `PUBLIC_ORIGIN` | `http://localhost:5173` for Vite; exact origin, no trailing slash |

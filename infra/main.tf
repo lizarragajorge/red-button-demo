@@ -120,7 +120,7 @@ resource "azurerm_linux_web_app" "demo" {
     } : {}, var.enable_three_tier ? {
     EXECUTION_MODE       = var.activate_queued_execution ? "queued" : "sync"
     STORAGE_ACCOUNT_NAME = azurerm_storage_account.three_tier["work"].name
-  } : {})
+  } : {}, local.multi_tenant_app_settings)
 
   logs {
     application_logs {

@@ -133,7 +133,9 @@ function setSupportDetails(details) {
 }
 
 function requestStorageKey() {
-  return `red-button:last-request:${state.config.tenantId}:${state.config.clientId}:${state.account.homeAccountId}`;
+  const tenant = state.account.tenantId ?? state.config.tenantId;
+  const context = tenant === state.config.tenantId ? "" : `:${tenant}`;
+  return `red-button:last-request:${state.config.tenantId}:${state.config.clientId}:${state.account.homeAccountId}${context}`;
 }
 
 function rememberRequest(id) {
@@ -643,7 +645,7 @@ async function initialize() {
     return;
   }
   state.msal = new PublicClientApplication({
-    auth: { clientId: state.config.clientId, authority: `https://login.microsoftonline.com/${state.config.tenantId}`, redirectUri: state.config.redirectUri },
+    auth: { clientId: state.config.clientId, authority: `https://login.microsoftonline.com/${state.config.multiTenant === true ? "organizations" : state.config.tenantId}`, redirectUri: state.config.redirectUri },
     cache: { cacheLocation: "sessionStorage" },
   });
   await state.msal.initialize();
@@ -653,6 +655,9 @@ async function initialize() {
     state.msal.setActiveAccount(state.account);
     $("account-name").textContent = state.account.name || state.account.username;
     $("sign-in").textContent = "Sign out";
+    if (state.config.multiTenant === true && !state.config.allowedTenantIds?.includes(state.account.tenantId)) {
+      throw new Error("Your organization is not enabled for this application. Sign out and use an approved work account.");
+    }
     const me = await api("/api/me");
     state.canDisable = me.canDisable;
     await refresh();

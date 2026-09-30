@@ -16,8 +16,7 @@ function record(requestId, status = "queued") {
 async function submit(page) {
   await page.getByRole("checkbox", { name: "Select Demo CommServe", exact: true }).check();
   await page.getByRole("button", { name: "Review disable backups request" }).click();
-  await page.getByPlaceholder("DISABLE BACKUPS").fill("DISABLE BACKUPS");
-  await page.getByRole("button", { name: "Confirm disable", exact: true }).click();
+  await page.getByRole("button", { name: "Disable backups", exact: true }).click();
 }
 
 test("queued submission tracks completion without repeating the mutation", async ({ page }) => {
@@ -25,22 +24,38 @@ test("queued submission tracks completion without repeating the mutation", async
   await mockApp(page, { executionMode: "queued" });
   let submittedId;
   let mutations = 0;
+  let statusChecks = 0;
   await page.route("**/api/disable", (route) => {
     mutations++;
     submittedId = route.request().headers()["idempotency-key"];
     return route.fulfill({ status: 202, json: record(submittedId) });
   });
-  await page.route("**/api/requests/*", (route) => route.fulfill({ json: record(submittedId, "completed") }));
+  await page.route("**/api/requests/*", (route) => {
+    statusChecks++;
+    return route.fulfill({ json: record(submittedId, statusChecks === 1 ? "running" : "completed") });
+  });
   await page.goto("/");
   await submit(page);
   await expect(page.locator("#result-state")).toHaveText("Queued");
   expect(submittedId).toMatch(/^[0-9a-f-]{36}$/);
   await expect(page.locator("#results")).toContainText("Waiting");
-  await expect(page.locator("#results")).not.toContainText("Request accepted");
-  await expect(page.locator("#result-next-step")).toContainText("Processing continues on the server");
+  await expect(page.locator("#results")).not.toContainText("Disable command accepted");
+  await expect(page.locator("#result-next-step")).toHaveText("Updates automatically. You can leave this page.");
+  await expect(page.locator("#check-status")).toBeHidden();
   await page.clock.fastForward(3100);
-  await expect(page.locator("#result-state")).toHaveText("Requests accepted");
-  await expect(page.locator("#servers")).toContainText("Request accepted");
+  await expect(page.locator("#result-state")).toHaveText("Processing");
+  await expect(page.locator("#result-summary")).toHaveText("0 of 1 servers processed.");
+  await page.clock.fastForward(3100);
+  await expect(page.locator("#result-state")).toHaveText("Request completed");
+  await expect(page.locator("#result-summary")).toHaveText("Disable command accepted for 1 server.");
+  await expect(page.locator("#result-next-step")).toHaveText("Backup state and re-enable are not monitored.");
+  await expect(page.locator("#results")).toContainText("Demo CommServe: Disable command accepted");
+  await expect(page.locator("#servers")).toContainText("Disable command accepted");
+  await expect(page.locator("#check-status")).toBeHidden();
+  await expect(page.locator("#request-tracking")).toBeHidden();
+  await expect(page.getByRole("textbox", { name: "Find a saved request" })).toBeHidden();
+  await page.clock.fastForward(10000);
+  expect(statusChecks).toBe(2);
   expect(mutations).toBe(1);
 });
 
@@ -58,8 +73,51 @@ test("reloading restores the same saved request without resubmitting", async ({ 
   await submit(page);
   await expect(page.locator("#result-state")).toHaveText("Queued");
   await page.reload();
-  await expect(page.locator("#result-state")).toHaveText("Requests accepted");
+  await expect(page.locator("#result-state")).toHaveText("Request completed");
+  await expect(page.locator("#result-summary")).toHaveText("Disable command accepted for 1 server.");
+  await expect(page.locator("#result-next-step")).toHaveText("Backup state and re-enable are not monitored.");
   await expect(page.locator("#request-id")).toHaveValue(id);
+  expect(mutations).toBe(1);
+});
+
+test("large queued selections are tracked and restored without truncation or replay", async ({ page }) => {
+  await page.clock.install();
+  await mockApp(page, { executionMode: "queued" });
+  const ids = Array.from({ length: 125 }, (_, index) => index + 1);
+  const servers = ids.map((id) => ({ id, name: `server-${id}` }));
+  let submitted;
+  let id;
+  let mutations = 0;
+  const largeRecord = (status) => ({
+    ...record(id, status), serverIds: ids,
+    results: ids.map((serverId) => ({
+      serverId, status: status === "queued" ? "pending" : "accepted", success: status === "queued" ? null : true,
+    })),
+  });
+  await page.route("**/api/servers?*", (route) => route.fulfill({
+    json: { totalServers: ids.length, servers, inventory: { updatedAt: new Date().toISOString(), stale: false, refreshError: null } },
+  }));
+  await page.route("**/api/disable", (route) => {
+    mutations++;
+    submitted = route.request().postDataJSON();
+    id = route.request().headers()["idempotency-key"];
+    return route.fulfill({ status: 202, json: largeRecord("queued") });
+  });
+  await page.route("**/api/requests/*", (route) => route.fulfill({ json: largeRecord("completed") }));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Select all (125)", exact: true }).click();
+  await page.getByRole("button", { name: "Review disable backups request" }).click();
+  await expect(page.locator("#confirm-targets li")).toHaveCount(125);
+  await page.getByRole("button", { name: "Disable backups", exact: true }).click();
+  await expect(page.locator("#result-state")).toHaveText("Queued");
+  expect(submitted.serverIds).toEqual(ids);
+  await expect(page.locator("#results li")).toHaveCount(125);
+  await page.clock.fastForward(3100);
+  await expect(page.locator("#result-summary")).toHaveText("Disable command accepted for 125 servers.");
+  await page.reload();
+  await expect(page.locator("#result-state")).toHaveText("Request completed");
+  await expect(page.locator("#results li")).toHaveCount(125);
+  await expect(page.getByRole("alert")).toBeHidden();
   expect(mutations).toBe(1);
 });
 
@@ -75,7 +133,7 @@ test("a lost submission response recovers by idempotency key instead of retrying
   await page.route("**/api/requests/*", (route) => route.fulfill({ json: record(id, "completed") }));
   await page.goto("/");
   await submit(page);
-  await expect(page.locator("#result-state")).toHaveText("Requests accepted");
+  await expect(page.locator("#result-state")).toHaveText("Request completed");
   await expect(page.locator("#request-id")).toHaveValue(id);
   await page.locator("#result-details summary").click();
   await expect(page.locator("#result-detail-text")).toContainText(id);
@@ -87,8 +145,10 @@ test("status failure stops automatic polling and provides an explicit read-only 
   await mockApp(page, { executionMode: "queued" });
   let id;
   let checks = 0;
+  let mutations = 0;
   let fail = true;
   await page.route("**/api/disable", (route) => {
+    mutations++;
     id = route.request().headers()["idempotency-key"];
     return route.fulfill({ status: 202, json: record(id) });
   });
@@ -99,17 +159,21 @@ test("status failure stops automatic polling and provides an explicit read-only 
   });
   await page.goto("/");
   await submit(page);
-  await page.getByRole("button", { name: "Check status", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Retry status", exact: true })).toBeHidden();
+  await page.clock.fastForward(3100);
   await expect(page.locator("#result-state")).toHaveText("Status unavailable");
-  await expect(page.locator("#tracking-message")).toContainText("does not cancel");
+  await expect(page.locator("#result-next-step")).toHaveText("Retry status to check this request, not submit it again.");
   await expect(page.getByRole("button", { name: "Review disable backups request" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /^Select all/ })).toBeDisabled();
   await page.clock.fastForward(30000);
   expect(checks).toBe(1);
   fail = false;
-  await page.getByRole("button", { name: "Check status", exact: true }).click();
-  await expect(page.locator("#result-state")).toHaveText("Check outcomes");
+  await page.getByRole("button", { name: "Retry status", exact: true }).click();
+  await expect(page.locator("#result-state")).toHaveText("Outcome unknown");
   await expect(page.locator("#results")).toContainText("Outcome unknown");
   await expect(page.locator("#result-next-step")).toContainText("before retrying");
+  await expect(page.getByRole("button", { name: "Retry status", exact: true })).toBeHidden();
+  expect(mutations).toBe(1);
 });
 
 test("cached inventory shows source freshness rather than claiming a new refresh", async ({ page }) => {
@@ -130,7 +194,7 @@ test("saved outcomes remain available even when inventory cache is unavailable",
   await page.route("**/api/servers?*", (route) => route.fulfill({ status: 503, json: { error: "Inventory has not been refreshed yet." } }));
   await page.route("**/api/requests/*", (route) => route.fulfill({ json: record(savedId, "completed") }));
   await page.goto("/");
-  await expect(page.locator("#result-state")).toHaveText("Requests accepted");
+  await expect(page.locator("#result-state")).toHaveText("Request completed");
   await expect(page.locator("#results")).toContainText("Server 101");
   await expect(page.getByRole("button", { name: "Retry inventory", exact: true })).toBeEnabled();
 });
@@ -145,7 +209,8 @@ test("saved request references are scoped to the signed-in account", async ({ pa
   expect(checks).toBe(0);
 });
 
-test("stopping tracking is explicit and does not send cancellation or another mutation", async ({ page }) => {
+test("tracking is automatic with no stop controls and cannot switch away from pending work", async ({ page }) => {
+  await page.clock.install();
   await mockApp(page, { executionMode: "queued" });
   let mutations = 0;
   await page.route("**/api/disable", (route) => {
@@ -154,17 +219,17 @@ test("stopping tracking is explicit and does not send cancellation or another mu
   });
   await page.goto("/");
   await submit(page);
-  await page.locator("#stop-tracking").click();
-  const dialog = page.getByRole("dialog", { name: "Stop tracking this request?" });
-  await expect(dialog).toContainText("does not cancel");
-  await dialog.getByRole("button", { name: "Keep tracking", exact: true }).click();
+  await expect(page.getByRole("button", { name: /Stop tracking|Keep tracking|Check status/ })).toHaveCount(0);
+  await expect(page.locator("#check-status")).toBeHidden();
+  const id = await page.evaluate((key) => localStorage.getItem(key), storageKey);
+  await page.locator("#result-details summary").click();
+  await page.getByRole("textbox", { name: "Find a saved request" }).fill(savedId);
+  await page.getByRole("button", { name: "Look up", exact: true }).click();
+  await expect(page.locator("#lookup-message")).toContainText("Wait for the current request");
   await expect(page.locator("#result-state")).toHaveText("Queued");
-  await page.locator("#stop-tracking").click();
-  await dialog.getByRole("button", { name: "Stop tracking", exact: true }).click();
-  await expect(page.locator("#result-state")).toHaveText("Tracking stopped");
-  await expect(page.locator("#tracking-message")).toContainText("not processing");
+  await expect(page.getByRole("button", { name: "Review disable backups request" })).toBeDisabled();
   expect(mutations).toBe(1);
-  expect(await page.evaluate((key) => localStorage.getItem(key), storageKey)).toBeNull();
+  expect(await page.evaluate((key) => localStorage.getItem(key), storageKey)).toBe(id);
 });
 
 test("definitive validation rejection does not invent a queued request or block future submissions", async ({ page }) => {
@@ -186,7 +251,7 @@ test("malformed terminal status cannot imply successful completion", async ({ pa
   await page.route("**/api/requests/*", (route) => route.fulfill({ json: { ...record(savedId), status: "completed" } }));
   await page.goto("/");
   await expect(page.locator("#result-state")).toHaveText("Status unavailable");
-  await expect(page.locator("#result-summary")).not.toContainText("requests accepted");
+  await expect(page.locator("#result-summary")).not.toContainText("disable commands accepted");
   await expect(page.getByRole("button", { name: "Review disable backups request" })).toBeDisabled();
 });
 
@@ -198,13 +263,18 @@ test("manual lookup validates IDs and never treats other-owner not-found as succ
     return route.fulfill({ status: 404, json: { error: "Request not found." } });
   });
   await page.goto("/");
+  await expect(page.getByRole("textbox", { name: "Find a saved request" })).toBeHidden();
+  await page.locator("#result-details summary").click();
   await page.getByRole("textbox", { name: "Find a saved request" }).fill("not-an-id");
   await page.getByRole("button", { name: "Look up", exact: true }).click();
-  await expect(page.locator("#tracking-message")).toContainText("valid Request ID");
+  await expect(page.locator("#lookup-message")).toContainText("valid Request ID");
   expect(checks).toBe(0);
   await page.getByRole("textbox", { name: "Find a saved request" }).fill(savedId);
   await page.getByRole("button", { name: "Look up", exact: true }).click();
-  await expect(page.locator("#result-state")).toHaveText("Status unavailable");
+  await expect(page.locator("#lookup-message")).toContainText("Request not found.");
+  await expect(page.locator("#result-state")).toHaveText("No actions yet");
+  await expect(page.getByRole("checkbox", { name: "Select Demo CommServe", exact: true })).toBeEnabled();
+  expect(await page.evaluate((key) => localStorage.getItem(key), storageKey)).toBeNull();
   expect(checks).toBe(1);
 });
 
@@ -230,8 +300,8 @@ test("running targets become partial outcomes without moving keyboard focus", as
   await expect(page.locator("#result-summary")).toHaveText("1 of 2 servers processed.");
   await page.getByRole("searchbox", { name: "Find a server" }).focus();
   await page.clock.fastForward(3100);
-  await expect(page.locator("#result-state")).toHaveText("Partially accepted");
-  await expect(page.locator("#result-summary")).toHaveText("1 of 2 requests accepted.");
+  await expect(page.locator("#result-state")).toHaveText("Partially completed");
+  await expect(page.locator("#result-summary")).toHaveText("1 of 2 disable commands accepted.");
   await expect(page.getByRole("searchbox", { name: "Find a server" })).toBeFocused();
 });
 
@@ -246,7 +316,7 @@ test("storage-denied mobile browsers can save a visible Request ID and track out
   }));
   await page.goto("/");
   await submit(page);
-  await expect(page.locator("#result-state")).toHaveText("Requests accepted");
+  await expect(page.locator("#result-state")).toHaveText("Request completed");
   await expect(page.locator("#tracking-storage-warning")).toContainText("Save the Request ID");
   await expect(page.locator("#request-id")).toHaveValue(/^[0-9a-f-]{36}$/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
@@ -257,12 +327,13 @@ test("saved requests retain their original environment label after configuration
   await page.addInitScript(({ key, id }) => localStorage.setItem(key, id), { key: storageKey, id: savedId });
   await page.route("**/api/requests/*", (route) => route.fulfill({ json: { ...record(savedId, "completed"), mode: "live" } }));
   await page.goto("/");
-  await expect(page.locator("#result-state")).toHaveText("Requests accepted");
+  await expect(page.locator("#result-state")).toHaveText("Request completed");
   await expect(page.locator("#tracking-message")).toContainText("Saved Live request. This is not the current environment.");
   await expect(page.locator("#mode")).toHaveText("DEMO");
 });
 
-test("stopping tracking ignores an already in-flight status response", async ({ page }) => {
+test("automatic in-flight status checks prevent duplicate submissions and request switching", async ({ page }) => {
+  await page.clock.install();
   await mockApp(page, { executionMode: "queued" });
   await page.addInitScript(({ key, id }) => localStorage.setItem(key, id), { key: storageKey, id: savedId });
   let checks = 0;
@@ -270,17 +341,45 @@ test("stopping tracking ignores an already in-flight status response", async ({ 
   await page.route("**/api/requests/*", async (route) => {
     checks++;
     if (checks > 1) await new Promise((resolve) => { release = resolve; });
-    await route.fulfill({ json: record(savedId) });
+    await route.fulfill({ json: record(savedId, checks > 1 ? "completed" : "queued") });
   });
   await page.goto("/");
   await expect(page.locator("#result-state")).toHaveText("Queued");
-  await page.getByRole("button", { name: "Check status", exact: true }).click();
+  await page.clock.fastForward(3100);
   await expect.poll(() => checks).toBe(2);
-  await page.locator("#stop-tracking").click();
-  await page.getByRole("dialog", { name: "Stop tracking this request?" }).getByRole("button", { name: "Stop tracking", exact: true }).click();
+  await page.locator("#result-details summary").click();
+  await expect(page.getByRole("button", { name: "Look up", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Review disable backups request" })).toBeDisabled();
   const response = page.waitForResponse(`**/api/requests/${savedId}`);
   release();
   await response;
-  await expect(page.locator("#result-state")).toHaveText("Tracking stopped");
+  await expect(page.locator("#result-state")).toHaveText("Request completed");
   await expect(page.locator("#check-status")).toBeHidden();
+  expect(await page.evaluate((key) => localStorage.getItem(key), storageKey)).toBe(savedId);
+});
+
+test("support lookup preserves a completed result on error and loads another owned request on success", async ({ page }) => {
+  await mockApp(page, { executionMode: "queued" });
+  await page.addInitScript(({ key, id }) => localStorage.setItem(key, id), { key: storageKey, id: savedId });
+  const nextId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  let fail = true;
+  await page.route("**/api/requests/*", (route) => {
+    if (route.request().url().endsWith(savedId)) return route.fulfill({ json: record(savedId, "completed") });
+    return fail ? route.fulfill({ status: 404, json: { error: "Request not found." } })
+      : route.fulfill({ json: record(nextId, "failed") });
+  });
+  await page.goto("/");
+  await expect(page.locator("#result-state")).toHaveText("Request completed");
+  await page.locator("#result-details summary").click();
+  await page.getByRole("textbox", { name: "Find a saved request" }).fill(nextId);
+  await page.getByRole("button", { name: "Look up", exact: true }).click();
+  await expect(page.locator("#lookup-message")).toHaveText("Request not found.");
+  await expect(page.locator("#result-state")).toHaveText("Request completed");
+  expect(await page.evaluate((key) => localStorage.getItem(key), storageKey)).toBe(savedId);
+  fail = false;
+  await page.getByRole("button", { name: "Look up", exact: true }).click();
+  await expect(page.locator("#result-state")).toHaveText("Request failed");
+  await expect(page.locator("#lookup-message")).toBeEmpty();
+  await expect(page.locator("#check-status")).toBeHidden();
+  expect(await page.evaluate((key) => localStorage.getItem(key), storageKey)).toBe(nextId);
 });

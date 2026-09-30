@@ -1,10 +1,16 @@
 # Queued execution architecture
 
-`EXECUTION_MODE=sync` remains the default. `EXECUTION_MODE=queued` opts into
-shared inventory, durable request records, Storage Queues, and Python Azure
-Functions. Changing the setting alone is insufficient: configure storage and
-deploy/start the Functions application as described in the
-[infrastructure guide](infrastructure.md). No authentication bypass is added.
+`EXECUTION_MODE=queued` is the default: shared inventory, durable request records,
+Storage Queues, and Python Azure Functions. Terraform defaults to
+`enable_three_tier=true` and `activate_queued_execution=true`.
+Configure storage and deploy/start both the web and Functions applications as
+described in the [infrastructure guide](infrastructure.md). Changing the setting
+alone is insufficient. Missing storage configuration fails startup rather than
+silently falling back to synchronous execution. No authentication bypass is added.
+
+Set `EXECUTION_MODE=sync` explicitly for a storage-free local run. In Terraform,
+`enable_three_tier=false` writes an explicit synchronous web configuration and
+omits the worker/storage stack.
 
 For staged rollout or recovery, `activate_queued_execution=false` keeps
 provisioned storage but stops the worker and selects synchronous web execution.
@@ -47,7 +53,10 @@ networking, ingress restrictions, and deployment validation remain prerequisites
 ## Submission and tracking contract
 
 1. The API validates the Entra token, mode-specific permission, live-write gate,
-   target IDs, typed confirmation, and requested re-enable deadline. Signed-in
+   target IDs, the explicit confirmation field, and requested re-enable deadline.
+   The browser sends `confirmation: "DISABLE BACKUPS"` only when the operator
+   clicks **Disable backups** in the target-and-duration review dialog; no typed
+   phrase is required. Signed-in
    approved users can operate the simulator by default; live and restricted-demo
    actions require `BackupOperator`. Request ownership remains per tenant/user.
 2. The browser generates a UUID `Idempotency-Key` and saves that reference before
@@ -108,16 +117,26 @@ Freshness is an operator warning, not an assertion of current backup state.
 
 Only the last Request ID is stored in browser local storage, keyed by tenant,
 SPA, and MSAL account. Server records remain authoritative. The UI exposes
-manual lookup and supports viewing a saved request even if inventory is
+manual lookup inside collapsed **Support details** and supports viewing a saved request even if inventory is
 temporarily unavailable. It does not provide a request-history list.
 
 A lost submission response triggers a read of the same UUID, never an automatic
-repeat write. Failed status checks stop automatic polling and expose **Check
-status**. **Stop tracking** requires acknowledgement and only clears the
-browser's reference; it does not cancel processing. Save the ID before stopping.
+repeat write. Status updates and recovery after reload are automatic until a
+terminal outcome is recorded. There are no keep/stop tracking controls.
+Failed status checks stop automatic polling and expose **Retry status**, which
+only reads the existing request, never resubmits it. A failed lookup of another
+request leaves the current result and saved reference unchanged.
 Storage-denied browsers receive explicit instructions to save the ID manually.
 
 ## Operational limits
+
+Requests have no fixed server-count cap. The API still requires nonempty,
+unique, valid server IDs and enforces its 16 KiB JSON request-body limit.
+Queue messages contain only the request UUID, not the full target list.
+Large requests take longer because targets are processed sequentially and
+progress is persisted per target. The Functions host has a 15-minute execution
+timeout; validate workload size and upstream latency before shared use.
+Restart recovery does not remove that timeout or guarantee unlimited capacity.
 
 Configure retention and access controls for request records, inventory,
 coordination, simulated state, logs, and poison messages. Records can contain

@@ -34,7 +34,7 @@ async def test_demo_does_not_require_a_roles_claim_but_still_requires_confirmati
 @pytest.mark.parametrize("live_gate", ["true", "false"])
 async def test_demo_permissions_never_authorize_live_actions(harness, role, live_gate):
     settings = Settings.from_env({
-        **IDENTITY, "APP_ENV": "test", "COMMVAULT_MODE": "live",
+        **IDENTITY, "APP_ENV": "test", "EXECUTION_MODE": "sync", "COMMVAULT_MODE": "live",
         "COMMVAULT_BASE_URL": "https://live.invalid", "COMMVAULT_AUTH_VALUE": "test-value",
         "ENABLE_LIVE_OPERATIONS": live_gate,
     })

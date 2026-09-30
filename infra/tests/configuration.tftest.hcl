@@ -139,9 +139,7 @@ variables {
   commvault_mode                          = "stub"
   enable_live_operations                  = false
   key_vault_public_network_access_enabled = true
-  enable_three_tier                       = false
   enable_private_storage_networking       = false
-  activate_queued_execution               = true
   enable_gateway_ingress                  = false
   existing_apim_base_url                  = ""
 }
@@ -392,8 +390,11 @@ run "vault_name_handles_hyphenated_app_names" {
   }
 }
 
-run "sync_default_has_no_three_tier_resources" {
+run "explicit_sync_has_no_three_tier_resources" {
   command = plan
+  variables {
+    enable_three_tier = false
+  }
   assert {
     condition = (
       length(azurerm_storage_account.three_tier) == 0 &&
@@ -403,20 +404,17 @@ run "sync_default_has_no_three_tier_resources" {
       length(azurerm_application_gateway.ingress) == 0 &&
       length(azurerm_virtual_network.gateway) == 0 &&
       length(azurerm_public_ip.gateway) == 0 &&
-      !contains(keys(azurerm_linux_web_app.demo.app_settings), "EXECUTION_MODE") &&
+      azurerm_linux_web_app.demo.app_settings["EXECUTION_MODE"] == "sync" &&
       !contains(keys(azurerm_linux_web_app.demo.app_settings), "STORAGE_ACCOUNT_NAME") &&
       azurerm_linux_web_app.demo.site_config[0].ip_restriction_default_action == "Allow" &&
       !azurerm_linux_web_app.demo.site_config[0].scm_use_main_ip_restriction
     )
-    error_message = "Default must preserve sync hosting without worker/storage/gateway or ingress restrictions."
+    error_message = "Explicit sync must not provision worker/storage/gateway or add ingress restrictions."
   }
 }
 
-run "queued_storage_runtime_and_rbac" {
+run "queued_defaults_storage_runtime_and_rbac" {
   command = plan
-  variables {
-    enable_three_tier = true
-  }
   assert {
     condition = (
       toset(keys(azurerm_storage_account.three_tier)) == toset(["work", "host"]) &&
@@ -448,6 +446,7 @@ run "queued_storage_runtime_and_rbac" {
   assert {
     condition = (
       azurerm_linux_function_app.worker[0].service_plan_id == azurerm_service_plan.demo.id &&
+      azurerm_linux_function_app.worker[0].enabled &&
       azurerm_service_plan.demo.sku_name == "B1" &&
       azurerm_linux_function_app.worker[0].functions_extension_version == "~4" &&
       azurerm_linux_function_app.worker[0].site_config[0].always_on &&
@@ -703,13 +702,14 @@ run "private_storage_off_by_default" {
   command = plan
   assert {
     condition     = length(azurerm_private_endpoint.storage) == 0 && length(azurerm_virtual_network.storage) == 0
-    error_message = "Default synchronous mode must not provision private networking."
+    error_message = "Default queued mode must not provision optional private networking."
   }
 }
 
 run "reject_private_storage_without_queued_resources" {
   command = plan
   variables {
+    enable_three_tier                 = false
     enable_private_storage_networking = true
   }
   expect_failures = [var.enable_private_storage_networking]
@@ -793,6 +793,7 @@ run "multi_tenant_org_allowlist_and_runtime" {
 run "multi_tenant_sync_and_maximum_allowlist" {
   command = plan
   variables {
+    enable_three_tier   = false
     enable_multi_tenant = true
     allowed_tenant_ids  = [for i in range(20) : format("aaaaaaaa-aaaa-aaaa-aaaa-%012d", i)]
   }

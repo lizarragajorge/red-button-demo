@@ -1,27 +1,27 @@
 <mxfile host="app.diagrams.net" version="24.7.17">
-  <diagram name="1. Simple demo (default)" id="red-button-simple">
+  <diagram name="1. Synchronous demo (optional)" id="red-button-simple">
     <mxGraphModel grid="1" gridSize="10" page="1" pageScale="1" pageWidth="1200" pageHeight="800">
       <root>
         <mxCell id="0"/>
         <mxCell id="1" parent="0"/>
-        <mxCell id="title" value="RED BUTTON | Simple demo (default)&#xa;Start here when durable request tracking is not needed." style="text;html=0;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="50" y="30" width="1100" height="80" as="geometry"/></mxCell>
-        <mxCell id="browser" value="Browser&#xa;MSAL sign-in&#xa;Select / review / typed confirmation" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=16;" vertex="1" parent="1"><mxGeometry x="60" y="160" width="340" height="110" as="geometry"/></mxCell>
+        <mxCell id="title" value="RED BUTTON | Synchronous demo (optional)&#xa;Explicit opt-out when durable request tracking is not needed." style="text;html=0;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="50" y="30" width="1100" height="80" as="geometry"/></mxCell>
+        <mxCell id="browser" value="Browser&#xa;MSAL sign-in&#xa;Select / review / confirm" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=16;" vertex="1" parent="1"><mxGeometry x="60" y="160" width="340" height="110" as="geometry"/></mxCell>
         <mxCell id="entra" value="Microsoft Entra ID&#xa;SPA + API registrations&#xa;Single-tenant by default" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=16;" vertex="1" parent="1"><mxGeometry x="730" y="160" width="360" height="110" as="geometry"/></mxCell>
         <mxCell id="api" value="Azure App Service&#xa;Python FastAPI + built web UI&#xa;Validate token and permissions&#xa;Shared Commvault HTTP adapter" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=16;" vertex="1" parent="1"><mxGeometry x="60" y="380" width="440" height="150" as="geometry"/></mxCell>
         <mxCell id="stub" value="Private Commvault simulator&#xa;List servers / disable backups&#xa;In-process ASGI transport, no listener&#xa;Synthetic data; state resets on restart" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=16;" vertex="1" parent="1"><mxGeometry x="730" y="380" width="360" height="150" as="geometry"/></mxCell>
         <mxCell id="sign-in" value="Authorization code + PKCE" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;fontSize=13;" edge="1" parent="1" source="browser" target="entra"><mxGeometry relative="1" as="geometry"/></mxCell>
         <mxCell id="request" value="HTTPS + API access token" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;fontSize=13;" edge="1" parent="1" source="browser" target="api"><mxGeometry relative="1" as="geometry"/></mxCell>
         <mxCell id="simulate" value="Same HTTP contract&#xa;No network hop" style="edgeStyle=orthogonalEdgeStyle;html=0;endArrow=block;fontSize=13;" edge="1" parent="1" source="api" target="stub"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="notes" value="Terraform provisions hosting, identity, Key Vault and monitoring; application deployment is separate.&#xa;No queue, Functions, or application storage stack in this recipe.&#xa;Authenticated admitted users can operate the simulator. Anonymous access and live writes remain blocked.&#xa;Request acceptance is not proof of current backup state or successful re-enable.&#xa;Setup: README.md. Queued option: page 2. APIM, gateway and live integration are separate optional work." style="text;whiteSpace=wrap;html=0;align=left;fontSize=16;" vertex="1" parent="1"><mxGeometry x="60" y="620" width="1040" height="150" as="geometry"/></mxCell>
+        <mxCell id="notes" value="Terraform provisions hosting, identity, Key Vault and monitoring; application deployment is separate.&#xa;Set enable_three_tier=false (EXECUTION_MODE=sync locally); no queue, Functions, or application storage stack.&#xa;Authenticated admitted users can operate the simulator. Anonymous access and live writes remain blocked.&#xa;Request acceptance is not proof of current backup state or successful re-enable.&#xa;Setup: README.md. Queued default: page 2. APIM, gateway and live integration are separate optional work." style="text;whiteSpace=wrap;html=0;align=left;fontSize=16;" vertex="1" parent="1"><mxGeometry x="60" y="620" width="1040" height="150" as="geometry"/></mxCell>
       </root>
     </mxGraphModel>
   </diagram>
-  <diagram name="2. Queued demo (optional)" id="red-button-queued">
+  <diagram name="2. Queued demo (default)" id="red-button-queued">
     <mxGraphModel grid="1" gridSize="10" page="1" pageScale="1" pageWidth="1400" pageHeight="1000">
       <root>
         <mxCell id="0"/>
         <mxCell id="1" parent="0"/>
-        <mxCell id="title" value="RED BUTTON | Queued demo (optional)&#xa;Add durable requests and worker execution when the demonstration needs them." style="text;html=0;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="40" y="20" width="1320" height="90" as="geometry"/></mxCell>
+        <mxCell id="title" value="RED BUTTON | Queued demo (default)&#xa;Durable requests, worker execution, and browser recovery. Deploy both packages." style="text;html=0;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="40" y="20" width="1320" height="90" as="geometry"/></mxCell>
         <mxCell id="browser" value="Browser + MSAL&#xa;Submit once; poll / resume own request" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=16;" vertex="1" parent="1"><mxGeometry x="40" y="150" width="330" height="100" as="geometry"/></mxCell>
         <mxCell id="entra" value="Microsoft Entra ID&#xa;Same sign-in and access controls" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=16;" vertex="1" parent="1"><mxGeometry x="700" y="150" width="390" height="100" as="geometry"/></mxCell>
         <mxCell id="api" value="App Service: FastAPI + web UI&#xa;Validate token / owner / confirmation&#xa;Persist request, then enqueue&#xa;Read cached inventory and request status" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=15;" vertex="1" parent="1"><mxGeometry x="40" y="350" width="330" height="160" as="geometry"/></mxCell>

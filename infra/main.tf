@@ -109,6 +109,7 @@ resource "azurerm_linux_web_app" "demo" {
     PUBLIC_ORIGIN                         = local.app_url
     APP_DISPLAY_NAME                      = trimspace(var.display_name)
     SUPPORT_URL                           = var.support_url
+    EXECUTION_MODE                        = var.enable_three_tier && var.activate_queued_execution ? "queued" : "sync"
     COMMVAULT_MODE                        = var.commvault_mode
     COMMVAULT_BASE_URL                    = local.commvault_url
     COMMVAULT_AUTH_HEADER                 = var.commvault_auth_header
@@ -119,7 +120,6 @@ resource "azurerm_linux_web_app" "demo" {
     }, var.commvault_mode == "live" ? {
     COMMVAULT_AUTH_VALUE = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.demo.vault_uri}secrets/${var.commvault_secret_name}/)"
     } : {}, var.enable_three_tier ? {
-    EXECUTION_MODE       = var.activate_queued_execution ? "queued" : "sync"
     STORAGE_ACCOUNT_NAME = azurerm_storage_account.three_tier["work"].name
   } : {}, local.multi_tenant_app_settings)
 

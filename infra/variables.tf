@@ -200,9 +200,9 @@ variable "tags" {
 }
 
 variable "enable_three_tier" {
-  description = "Opt in to durable queued execution, private storage containers and a Functions worker on the existing plan. False preserves the hosted synchronous demo."
+  description = "Provision durable queued execution, private storage containers and a Functions worker on the existing plan by default. False explicitly selects synchronous hosting without durable resources."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "existing_apim_base_url" {

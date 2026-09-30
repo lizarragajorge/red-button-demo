@@ -24,7 +24,7 @@ IDENTITY = {
     "ENTRA_API_CLIENT_ID": "22222222-2222-4222-8222-222222222222",
     "ENTRA_SPA_CLIENT_ID": "33333333-3333-4333-8333-333333333333",
 }
-CONFIG = Settings.from_env({**IDENTITY, "APP_ENV": "test"})
+CONFIG = Settings.from_env({**IDENTITY, "APP_ENV": "test", "EXECUTION_MODE": "sync"})
 
 
 @pytest.fixture(scope="session")
@@ -103,6 +103,8 @@ def test_npm_configuration_and_lockfile_use_only_approved_feeds():
 
 def test_settings_default_to_stub_and_hide_credentials_in_errors():
     assert Settings.from_env({}).mode == "stub"
+    assert Settings.from_env({}).execution_mode == "queued"
+    assert Settings.from_env({"EXECUTION_MODE": "sync"}).execution_mode == "sync"
     assert not Settings.from_env({}).identity_configured
     with pytest.raises(ValueError) as error:
         Settings.from_env({**IDENTITY, "COMMVAULT_MODE": "live", "COMMVAULT_AUTH_VALUE": "private-test-token"})
@@ -122,7 +124,7 @@ def test_invalid_public_branding_is_rejected(env):
 
 async def test_public_branding_does_not_change_safety_gates(harness):
     settings = Settings.from_env({
-        **IDENTITY, "APP_DISPLAY_NAME": "  Client Backup Control  ",
+        **IDENTITY, "EXECUTION_MODE": "sync", "APP_DISPLAY_NAME": "  Client Backup Control  ",
         "SUPPORT_URL": "https://support.example.invalid/help",
         "ALLOW_SIGNED_IN_DEMO_OPERATIONS": "false",
     })
@@ -156,10 +158,11 @@ async def test_public_config_never_discloses_credentials_and_protected_apis_fail
         assert response.headers["cache-control"] == "no-store"
         assert "COMMVAULT_AUTH_VALUE" not in response.json()
         assert response.json()["mode"] == "stub"
+        assert response.json()["executionMode"] == "sync"
         assert response.json()["displayName"] == "Red Button"
         assert response.json()["supportUrl"] == ""
         assert (await h.request("/api/servers", anonymous=True)).status_code == 401
-    async with harness(settings=Settings.from_env({})) as h:
+    async with harness(settings=Settings.from_env({"EXECUTION_MODE": "sync"})) as h:
         assert (await h.request("/api/servers", anonymous=True)).status_code == 503
 
 
@@ -221,13 +224,13 @@ async def test_disable_only_selected_server_repeat_and_audit(harness):
 
 
 async def test_operator_role_and_live_gate_are_independently_required(harness):
-    settings = Settings.from_env({**IDENTITY, "ALLOW_SIGNED_IN_DEMO_OPERATIONS": "false"})
+    settings = Settings.from_env({**IDENTITY, "EXECUTION_MODE": "sync", "ALLOW_SIGNED_IN_DEMO_OPERATIONS": "false"})
     async with harness(settings=settings) as h:
         assert (await h.request("/api/disable", body=disable(), claims={"roles": []})).status_code == 403
         assert (await h.request("/api/me", claims={"roles": []})).json() == {"canDisable": False}
     for enabled in (False, True):
         settings = Settings.from_env({
-            **IDENTITY, "APP_ENV": "test", "COMMVAULT_MODE": "live", "COMMVAULT_BASE_URL": "https://live.invalid",
+            **IDENTITY, "APP_ENV": "test", "EXECUTION_MODE": "sync", "COMMVAULT_MODE": "live", "COMMVAULT_BASE_URL": "https://live.invalid",
             "COMMVAULT_AUTH_VALUE": "test-value", "ENABLE_LIVE_OPERATIONS": "true" if enabled else "false",
         })
         async with harness(settings=settings) as h:
@@ -239,7 +242,8 @@ async def test_operator_role_and_live_gate_are_independently_required(harness):
 
 @pytest.mark.parametrize("body", [
     {**disable(), "confirmation": "yes"}, disable([]), disable([102, 102]), disable([-1]),
-    disable([2147483648]), disable([True]), disable(list(range(1, 52))),
+    disable([2147483648]), disable([True]),
+    disable([*range(1, 201), 1]), disable([*range(1, 201), -1]),
     disable(options={"enableAfterADelay": 1}), disable(options={"enableAfterADelay": 2147483648}),
     disable(options={"enableAfterDelayTimeZone": 1}), {**disable(), "unexpected": True},
 ])
@@ -247,6 +251,38 @@ async def test_invalid_requests_never_mutate_state(harness, body):
     async with harness() as h:
         assert (await h.request("/api/disable", body=body)).status_code == 400
         assert not h.store.get_state(102).disabled
+
+
+@pytest.mark.parametrize("count", [51, 200, 1000])
+async def test_large_requests_execute_every_target_without_truncation(harness, monkeypatch, count):
+    calls = []
+
+    async def accept(server_id, options):
+        calls.append(server_id)
+        return ActionResult(errorCode=0)
+
+    async with harness() as h:
+        monkeypatch.setattr(h.client, "disable_backups", accept)
+        ids = list(range(1, count + 1))
+        response = await h.request("/api/disable", body=disable(ids))
+        assert response.status_code == 200
+        assert calls == ids
+        assert response.json()["results"] == [{"serverId": server_id, "success": True} for server_id in ids]
+
+
+async def test_large_selection_over_body_size_limit_is_rejected_before_execution(harness, monkeypatch):
+    calls = []
+
+    async def accept(server_id, options):
+        calls.append(server_id)
+        return ActionResult(errorCode=0)
+
+    async with harness() as h:
+        monkeypatch.setattr(h.client, "disable_backups", accept)
+        response = await h.request("/api/disable", body=disable(list(range(1000000000, 1000002000))))
+        assert response.status_code == 413
+        assert "too large" in response.json()["error"]
+        assert calls == []
 
 
 async def test_schedule_uses_epoch_seconds_and_exact_deadline(harness):
@@ -374,7 +410,7 @@ async def test_runtime_lifespan_uses_private_stub_without_network(private_key):
 
 
 async def test_production_security_headers(harness):
-    settings = Settings.from_env({**IDENTITY, "APP_ENV": "production", "PUBLIC_ORIGIN": "https://demo.invalid"})
+    settings = Settings.from_env({**IDENTITY, "APP_ENV": "production", "EXECUTION_MODE": "sync", "PUBLIC_ORIGIN": "https://demo.invalid"})
     async with harness(settings=settings) as h:
         response = await h.request("/api/health", anonymous=True)
         assert response.status_code == 200

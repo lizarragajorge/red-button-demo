@@ -86,7 +86,7 @@ def preflight_responses(client, settings=None, site=None, config=None):
                   "enabledHostNames": ["demo-web.azurewebsites.net", "demo-web.scm.azurewebsites.net"]}
     values = {"COMMVAULT_MODE": "stub", "ENABLE_LIVE_OPERATIONS": "false", "APP_ENV": "production",
               "WEB_CONCURRENCY": "1", "PYTHONPATH": "/home/site/wwwroot/.python_packages/lib/site-packages",
-              "SCM_DO_BUILD_DURING_DEPLOYMENT": "false", "ENABLE_ORYX_BUILD": "false",
+              "SCM_DO_BUILD_DURING_DEPLOYMENT": "false", "ENABLE_ORYX_BUILD": "false", "EXECUTION_MODE": "sync",
               "ENTRA_TENANT_ID": SUBSCRIPTION, "ENTRA_API_CLIENT_ID": SUBSCRIPTION, "ENTRA_SPA_CLIENT_ID": SUBSCRIPTION}
     return [response({"id": client.resource_id, "kind": "app,linux", "properties": properties, **(site or {})}),
             response({"properties": {"linuxFxVersion": "PYTHON|3.12", "appCommandLine": "python -m server", **(config or {})}}),
@@ -294,6 +294,36 @@ def test_preflight_read_only(monkeypatch):
     client.preflight()
     assert [call.args[0] for call in http.request.call_args_list] == ["GET", "GET", "POST"]
     assert http.request.call_args_list[-1].args[1].endswith("/config/appsettings/list?api-version=" + release.API)
+
+
+@pytest.mark.parametrize("mode", [None, "queued", "sync"])
+def test_release_preflight_matches_runtime_execution_defaults(monkeypatch, mode):
+    http = Mock()
+    client = azure(monkeypatch, http)
+    responses = preflight_responses(client, settings={"STORAGE_ACCOUNT_NAME": "testworkstorage"})
+    settings = json.loads(responses[-1][2])["properties"]
+    if mode is None:
+        settings.pop("EXECUTION_MODE")
+    else:
+        settings["EXECUTION_MODE"] = mode
+    responses[-1] = response({"properties": settings})
+    http.request.side_effect = responses
+    client.preflight()
+    assert client.execution == ("queued" if mode is None else mode)
+
+
+@pytest.mark.parametrize("storage", ["", None, "not-a-storage-name"])
+def test_queued_release_requires_storage_before_upload(monkeypatch, storage):
+    http = Mock()
+    client = azure(monkeypatch, http)
+    responses = preflight_responses(client, settings={"STORAGE_ACCOUNT_NAME": storage})
+    settings = json.loads(responses[-1][2])["properties"]
+    settings.pop("EXECUTION_MODE")
+    responses[-1] = response({"properties": settings})
+    http.request.side_effect = responses
+    with pytest.raises(release.ReleaseError, match="Queued execution requires STORAGE_ACCOUNT_NAME"):
+        client.preflight()
+    assert not any("zipdeploy" in call.args[1] or "/restart" in call.args[1] for call in http.request.call_args_list)
 
 
 def test_exact_deployment_poll_then_restart(monkeypatch, package):

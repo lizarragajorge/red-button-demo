@@ -59,12 +59,11 @@ test("external tenant requests can be saved and resumed in their own context", a
   await page.goto("/");
   await page.getByRole("checkbox", { name: "Select Demo CommServe", exact: true }).check();
   await page.getByRole("button", { name: "Review disable backups request" }).click();
-  await page.getByPlaceholder("DISABLE BACKUPS").fill("DISABLE BACKUPS");
-  await page.getByRole("button", { name: "Confirm disable", exact: true }).click();
+  await page.getByRole("button", { name: "Disable backups", exact: true }).click();
   await expect(page.locator("#result-state")).toHaveText("Queued");
   const key = `red-button:last-request:${publicConfig.tenantId}:${publicConfig.clientId}:fixture-user:${external}`;
   expect(await page.evaluate((key) => localStorage.getItem(key), key)).toBe(id);
   await page.reload();
-  await expect(page.locator("#result-state")).toHaveText("Requests accepted");
+  await expect(page.locator("#result-state")).toHaveText("Request completed");
   expect(mutations).toBe(1);
 });

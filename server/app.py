@@ -128,7 +128,7 @@ def create_app(
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, error: RequestValidationError):
         return JSONResponse({
-            "error": "Select 1-50 unique servers, type DISABLE BACKUPS, and supply a valid JSON request with re-enable options.",
+            "error": "Select at least one unique server, confirm the operation, and supply a valid JSON request with re-enable options.",
             "requestId": request.state.request_id,
         }, status_code=400)
 

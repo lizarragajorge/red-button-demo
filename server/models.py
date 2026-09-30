@@ -20,14 +20,14 @@ class DelayOptions(BaseModel):
 
 class DisableRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    server_ids: list[ServerId] = Field(alias="serverIds", min_length=1, max_length=50)
+    server_ids: list[ServerId] = Field(alias="serverIds", min_length=1)
     confirmation: str
     options: DelayOptions = Field(default_factory=DelayOptions)
 
     @model_validator(mode="after")
     def confirm_unique_targets(self):
         if self.confirmation != "DISABLE BACKUPS":
-            raise ValueError("Type DISABLE BACKUPS to confirm.")
+            raise ValueError("Explicit disable confirmation is required.")
         if len(set(self.server_ids)) != len(self.server_ids):
             raise ValueError("Server IDs must be unique.")
         return self

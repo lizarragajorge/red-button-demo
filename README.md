@@ -4,7 +4,10 @@ An authenticated backup-control demo: **Python/FastAPI**, **MSAL + Microsoft
 Entra ID**, and **Terraform**. It simulates two Commvault operations so a team
 can demonstrate the workflow without changing real backups.
 
-**Defaults:** single-tenant sign-in, simulated servers, live writes disabled.
+**Defaults:** queued execution with durable request tracking, single-tenant
+sign-in, simulated servers, live writes disabled. Storage and a running
+Functions worker are required; use `EXECUTION_MODE=sync` explicitly for a
+storage-free local run.
 Any admitted signed-in user can operate the simulator. Real operations always
 require `BackupOperator` and an explicit live-write gate.
 
@@ -17,13 +20,40 @@ officially supported Commvault client.
 2. Select a synthetic server, then open the red button's review dialog.
 3. Review the targets and the default 60-minute re-enable request. Try **Cancel**
    first to show that opening the dialog does not submit anything.
-4. Reopen, type `DISABLE BACKUPS`, and confirm.
+4. Reopen, review the selected servers and duration, and click **Disable backups**.
 5. Inspect the per-server outcome and **Support details**. In queued mode, wait
    for completion; queue acceptance is not operation success.
 
-Select at most 50 servers. **Last request** describes a command outcome, not
-verified current backup state. A re-enable schedule is a request, not proof
+The inventory includes both infrastructure and workload servers, 10 per page.
+**Select all** adds all servers matching the search across every page.
+**Select page** selects or clears only the current page; selections persist
+across pages and searches. The adjacent count includes every selected server,
+including off-page selections. There is no fixed server-count cap and selections
+are never silently truncated. **Clear selection** or refreshing inventory clears
+all selections.
+Expand **Duration: 60 minutes** on the main screen to change the timing or
+choose **Until manually re-enabled**. These settings persist until changed or
+the page is reloaded. The confirmation asks **Disable backups for 60 minutes?**
+and lists selected server names. Expand **Server details** for hostnames and IDs.
+The DEMO/LIVE badge identifies the environment; no typing is required.
+Cancel and Escape submit nothing. Duration is measured from confirmation and
+sent as a requested re-enable deadline, not a guarantee of current backup state.
+
+**Last request** describes a command outcome, not verified current backup state.
+**Request completed** means processing finished and the disable command was
+accepted for every selected server. Backup state and re-enable are not monitored.
+Queued requests update automatically and resume after reload. **Retry status**
+appears only if an update fails; it never resubmits the operation. Request ID
+lookup is available under **Support details**.
+A re-enable schedule is a request, not proof
 that recovery occurred. Unknown outcomes require reconciliation, not blind retry.
+
+The existing 16 KiB JSON request-body protection still applies; oversized
+requests are explicitly rejected with HTTP 413 before execution. Hosting
+timeouts and upstream throughput also still apply. Use queued execution for
+large or slow operations that need durable tracking, and validate capacity in
+the target environment. Removing the count cap is not an unlimited-throughput
+guarantee.
 
 ## Deploy your organization's copy
 
@@ -35,8 +65,8 @@ tenant allowlist. Editing or publishing source does not deploy it.
 
 | Recipe | When to use it | Terraform settings |
 |---|---|---|
-| **Simple demo (default)** | Demonstrate sign-in and simulated actions | `enable_three_tier=false` |
-| **Queued demo** | Demonstrate durable requests and restart recovery | `enable_three_tier=true`, `activate_queued_execution=true` |
+| **Queued demo (default)** | Durable requests, progress tracking, and restart recovery | `enable_three_tier=true`, `activate_queued_execution=true` |
+| **Simple synchronous demo** | Demonstrate sign-in and simulated actions without durable tracking | `enable_three_tier=false` |
 | **Private-storage queued demo** | Queued behavior where policy requires private storage | Queued settings plus `enable_private_storage_networking=true` |
 
 Public storage endpoints in queued mode still require Entra tokens and scoped
@@ -44,8 +74,8 @@ RBAC; shared keys and anonymous Blob access remain disabled. Choose private mode
 when required by policy. Do not change an existing environment to another
 recipe without reviewing the resource and data impact.
 
-The [diagram](docs/architecture.drawio) has one page for the simple default and
-one for queued execution. APIM, gateway ingress, and live Commvault connectivity
+The [diagram](docs/architecture.drawio) has one page for the synchronous option
+and one for the queued default. APIM, gateway ingress, and live Commvault connectivity
 are optional integrations, not prerequisites.
 
 ### 2. Configure and provision
@@ -63,6 +93,13 @@ Use [Build and deploy](docs/deployment-tools.md) for the tested commands, then
 complete the [handoff checklist](docs/publishing.md#handoff-checklist) in your own
 environment. Terraform provisions resources; application deployment is separate.
 No workflow in this repository automatically deploys to Azure.
+
+Existing environments are not automatically migrated. An explicit
+`EXECUTION_MODE=sync` or `enable_three_tier=false` still opts out. Before
+upgrading an environment without an explicit execution mode, either provision
+and deploy the queued stack or pin `EXECUTION_MODE=sync`. Review Terraform plans:
+the new defaults can add billable storage and a worker. Do not activate queued
+execution before the worker and storage are ready.
 
 ## Run locally instead
 

@@ -115,9 +115,11 @@ the tenant issuing their token. Sign out/in after assignment changes.
 
 ## Storage and queued mode
 
-`enable_three_tier=true` adds a Python 3.12 Functions app, separate work/host
+`enable_three_tier=true` is the default and adds a Python 3.12 Functions app, separate work/host
 storage accounts, Blob containers, queues, scoped managed-identity RBAC, and
-monitoring. Web and Functions share the dedicated hosting plan; capacity must
+monitoring. `activate_queued_execution=true` enables the worker and selects
+queued web execution by default. Deploy both application packages; provisioning
+alone does not start processing. Web and Functions share the dedicated hosting plan; capacity must
 be checked for both. No storage account keys or anonymous Blob access are used.
 
 | Setting | Storage network |
@@ -144,6 +146,17 @@ Request records, inventory, coordination, and simulator state are private Blob
 containers; request/poison queues have different retention/recovery concerns.
 See [queued behavior](queued-architecture.md) for leases, ownership, ambiguous
 outcomes, and operational limits.
+
+For an existing synchronous deployment, review a staged migration: provision
+with `enable_three_tier=true` and `activate_queued_execution=false`, prepare both
+packages and the storage/network path, then activate and deploy/verify the
+worker before opening queued access to users. The worker release helper requires
+a Running host baseline, so it cannot verify a stopped worker.
+Wait for a successful timer refresh before expecting inventory in the UI.
+Missing inventory remains an explicit unavailable response; it is not seeded
+by the web app. To stay synchronous, set `enable_three_tier=false` explicitly
+(only in a deployment with no durable resources to preserve), or keep
+`activate_queued_execution=false` for a staged stack.
 
 ## Remote state
 
@@ -223,12 +236,70 @@ npm ci --include=dev --ignore-scripts --strict-ssl=true \
 
 Run `python -m server --reload` and `npm run dev` in separate terminals. For the
 built UI, use `npm run build` then `python -m server`, with the matching origin.
+For a storage-free local run, set `EXECUTION_MODE=sync` explicitly in `.env`
+before starting. The default queued mode needs the local setup below or a
+provisioned Azure deployment; it does not create storage or launch a worker.
 Without configured identity the protected API returns 503; there is no bypass.
 For corporate TLS inspection use approved `SSL_CERT_FILE`, `PIP_CERT`, and
 `NODE_EXTRA_CA_CERTS` as needed. Never disable TLS or package local CA/config files.
 
 The complete environment switch reference is [.env.example](../.env.example);
 Terraform options are in [terraform.tfvars.example](../infra/terraform.tfvars.example).
+
+### Local queued execution
+
+Use Python 3.12, approved installations of Azurite and Azure Functions Core
+Tools v4, and the restored Python dependencies. Run Azurite bound to loopback,
+using a dedicated local data directory. In `.env`, retain real Entra settings,
+stub mode, and disabled live writes, and configure:
+
+```dotenv
+EXECUTION_MODE=queued
+AZURE_STORAGE_CONNECTION_STRING=UseDevelopmentStorage=true
+WORK_STORAGE=UseDevelopmentStorage=true
+AzureWebJobsStorage=UseDevelopmentStorage=true
+FUNCTIONS_WORKER_RUNTIME=python
+```
+
+Provision the application containers/queues once against the running **local
+emulator** (the Functions host manages its own host-storage artifacts):
+
+```sh
+python - <<'PY'
+from azure.core.exceptions import ResourceExistsError
+from azure.storage.blob import BlobServiceClient
+from azure.storage.queue import QueueServiceClient
+
+connection = "UseDevelopmentStorage=true"
+with BlobServiceClient.from_connection_string(connection) as blobs:
+    for name in ("requests", "inventory", "coordination", "stub-state"):
+        try:
+            blobs.create_container(name)
+        except ResourceExistsError:
+            pass
+with QueueServiceClient.from_connection_string(connection) as queues:
+    for name in ("requests", "requests-poison"):
+        try:
+            queues.create_queue(name)
+        except ResourceExistsError:
+            pass
+print("Local application storage is ready.")
+PY
+```
+
+Run the worker from the repository root in another activated Python terminal,
+loading the same `.env` settings as the API:
+
+```sh
+python -c 'import os; from dotenv import load_dotenv; load_dotenv(); os.execvp("func", ["func", "start"])'
+```
+
+Start the API and Vite as above. The default timer runs every five minutes;
+inventory is unavailable until its first successful refresh. For local testing,
+`INVENTORY_REFRESH_SCHEDULE=0 * * * * *` runs it every minute; restart the worker
+after changing the schedule. Submit a simulated request, wait for completion,
+then reload the browser to verify owner-scoped recovery. Do not use emulator
+connection strings in production; Azure uses managed identity.
 
 ## Optional integrations
 

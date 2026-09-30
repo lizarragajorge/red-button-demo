@@ -18,7 +18,7 @@ UNTRUSTED = "66666666-6666-4666-8666-666666666666"
 
 def multi_settings(**overrides):
     return Settings.from_env({
-        **IDENTITY, "APP_ENV": "test", "ENTRA_MULTI_TENANT": "true",
+        **IDENTITY, "APP_ENV": "test", "EXECUTION_MODE": "sync", "ENTRA_MULTI_TENANT": "true",
         "ENTRA_ALLOWED_TENANT_IDS": f"{EXTERNAL},{SECOND}", **overrides,
     })
 

@@ -4,63 +4,75 @@ import "./style.css";
 document.querySelector("#app").innerHTML = `
   <a class="skip-link" href="#workspace">Skip to backup controls</a>
   <header class="topbar">
-    <a class="brand" href="/" aria-label="Red Button home"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name"><span id="brand-name">Red Button</span><span class="brand-sub">BACKUP OPERATIONS</span></span></a>
+    <a class="brand" href="/" aria-label="Red Button home"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name" id="brand-name">Red Button</span></a>
     <div class="account"><span id="account-name"></span><button id="sign-in" class="secondary" disabled>Sign in with Microsoft</button></div>
   </header>
   <main>
     <section class="heading" aria-labelledby="page-title">
-      <div class="hero-copy"><p class="eyebrow">OPERATIONS / BACKUP CONTROL</p><h1 id="page-title">The <span class="hero-red">Red Button.</span></h1><p class="hero-description">Select your scope. Review the impact. Take control.</p></div>
+      <div class="hero-copy"><h1 id="page-title">The <span class="hero-red">Red Button.</span></h1></div>
       <div class="hero-aside"><div id="mode" class="mode">CONNECTING</div></div>
     </section>
     <div id="notice" class="notice" role="status">Connecting to the application...</div>
     <div id="error" class="error" role="alert" hidden></div>
     <section id="workspace" class="workspace" tabindex="-1" aria-label="Backup controls">
       <div id="inventory" class="panel inventory" aria-busy="false">
-        <div class="panel-heading"><div><p class="eyebrow">01 / SELECT</p><h2>Server inventory <span id="server-count" class="count">0</span></h2></div><button id="refresh" class="secondary" disabled>Refresh</button></div>
+        <div class="panel-heading"><h2>Servers <span id="server-count" class="count">0</span></h2><button id="refresh" class="secondary" disabled>Refresh</button></div>
         <div class="inventory-toolbar">
           <div class="search-row"><label for="server-search" class="sr-only">Find a server</label><div class="search-input"><span aria-hidden="true" class="search-icon"></span><input id="server-search" type="search" placeholder="Search servers, hostnames, or IDs" disabled autocomplete="off"></div></div>
-          <div class="filter-row"><label><input id="infrastructure" type="checkbox" disabled> Infrastructure only</label></div>
         </div>
-        <div class="inventory-meta"><span id="inventory-status" class="muted" role="status">Inventory not loaded.</span><span>50 servers / request</span></div>
+        <div class="inventory-meta"><span id="inventory-status" class="muted" role="status">Inventory not loaded.</span></div>
         <p id="inventory-freshness" class="inventory-freshness" role="status" hidden></p>
-        <div class="selection-bar"><span id="selection-status" role="status">0 selected</span><button id="clear-selection" class="text-button" disabled>Clear selection</button></div>
-        <p id="selection-limit" class="selection-limit" hidden>These visible servers would exceed the 50-server limit. Select individual servers or narrow your search.</p>
-        <div class="table-scroll" tabindex="0" role="region" aria-label="Server inventory table"><table><thead><tr><th scope="col"><input type="checkbox" id="select-all" aria-label="Select all visible servers" aria-describedby="selection-status" disabled></th><th scope="col">SERVER</th><th scope="col">TYPE</th><th scope="col">LAST REQUEST<span class="column-note">This session only</span></th></tr></thead><tbody id="servers"></tbody></table></div>
+        <div class="selection-bar">
+          <label class="page-selection"><input type="checkbox" id="select-page" aria-describedby="selection-status" disabled> Select page</label>
+          <button id="select-all" class="text-button" aria-describedby="selection-status" disabled>Select all</button>
+          <span id="selection-status" role="status"><strong id="selection-count">0</strong> selected<span id="off-page-count"></span></span>
+          <button id="clear-selection" class="text-button" disabled>Clear selection</button>
+        </div>
+        <div class="table-scroll" tabindex="0" role="region" aria-label="Server inventory table"><table><thead><tr><th scope="col"><span class="sr-only">Select server</span></th><th scope="col">SERVER</th><th scope="col">TYPE</th><th scope="col">LAST REQUEST<span class="column-note">This session only</span></th></tr></thead><tbody id="servers"></tbody></table></div>
         <div class="empty-state"><p id="empty" class="empty">Your inventory will appear here.</p></div>
+        <nav id="pagination" class="pagination" aria-label="Server pages" hidden>
+          <button id="previous-page" class="secondary" disabled>Previous</button>
+          <span id="page-status" role="status"></span>
+          <button id="next-page" class="secondary" disabled>Next</button>
+        </nav>
       </div>
       <aside class="panel control">
-        <div class="control-heading"><p class="eyebrow">02 / REVIEW &amp; ACT</p><span class="control-label">MANUAL CONTROL</span></div>
-        <h2>The red button</h2>
-        <p class="muted">Pause backups. Keep control.</p>
+        <h2>Backup control</h2>
         <div class="button-stage">
           <button id="red-button" disabled aria-label="Review disable backups request" aria-describedby="button-guidance"><span class="button-label">DISABLE<br>BACKUPS</span><span class="button-caption">REVIEW &amp; CONFIRM</span></button>
           <p id="button-guidance" class="button-guidance">Review first. Nothing changes until you confirm.</p>
         </div>
-        <div class="selection"><strong id="selection-count">0</strong> <span id="selection-noun">servers selected</span></div>
-        <div class="control-scope"><span>SCOPE OF ACTION</span><p class="fine">Selected servers only. Running jobs and restores are not affected.</p></div>
-        <div class="safeguard"><span class="status-dot"></span><span>Confirmation required for every request</span></div>
+        <details id="timing-options" class="timing-options">
+          <summary id="timing-label">Duration: 60 minutes</summary>
+          <form id="options-form">
+            <label class="field">Duration (minutes)<input id="delay" type="number" min="1" max="1440" step="1" value="60" required disabled></label>
+            <label class="check"><input id="indefinite" type="checkbox" disabled> Until manually re-enabled</label>
+          </form>
+        </details>
       </aside>
     <section id="activity" class="panel activity" aria-labelledby="results-title">
-      <div class="panel-heading"><div><p class="eyebrow">03 / VERIFY</p><h2 id="results-title" tabindex="-1">Action results</h2></div><span id="result-state" class="result-state">No actions yet</span></div>
+      <div class="panel-heading"><h2 id="results-title" tabindex="-1">Action results</h2><span id="result-state" class="result-state">No actions yet</span></div>
       <p id="result-summary" role="status">No requests yet.</p>
-      <p id="result-next-step" class="result-next-step">Results show requests made in this session, not current backup state.</p>
+      <p id="result-next-step" class="result-next-step" hidden></p>
       <div id="request-tracking" class="request-tracking" hidden>
-        <button id="check-status" class="secondary" hidden>Check status</button>
-        <button id="stop-tracking" class="text-button" hidden>Stop tracking</button>
+        <button id="check-status" class="secondary" hidden>Retry status</button>
         <p id="tracking-message" role="status"></p>
         <p id="tracking-storage-warning" class="fine" role="status"></p>
-        <form id="lookup-request">
-          <label for="request-id">Find a saved request</label>
-          <div class="request-lookup"><input id="request-id" type="text" placeholder="Request ID" autocomplete="off" spellcheck="false" required aria-describedby="tracking-help"><button id="lookup-submit" class="secondary" type="submit">Look up</button></div>
-          <p id="tracking-help" class="fine">Only requests submitted by your signed-in account can be viewed. Status is not a query of current backup state.</p>
-        </form>
       </div>
       <ul id="results" aria-label="Per-server action results"></ul>
       <details id="result-details" class="support-details" hidden>
         <summary>Support details</summary>
+        <form id="lookup-request" hidden>
+          <label for="request-id">Find a saved request</label>
+          <div class="request-lookup"><input id="request-id" type="text" placeholder="Request ID" autocomplete="off" spellcheck="false" required aria-describedby="tracking-help"><button id="lookup-submit" class="secondary" type="submit">Look up</button></div>
+          <p id="tracking-help" class="fine">Your requests only.</p>
+          <p id="lookup-message" role="status"></p>
+        </form>
+        <div id="result-support" hidden>
         <p class="fine">Includes server names and IDs. Share only with your trusted support team.</p>
         <pre id="result-detail-text" tabindex="0" aria-label="Request support details"></pre>
         <div class="copy-controls"><button id="copy-details" class="secondary">Copy details</button><span id="copy-status" role="status"></span></div>
+        </div>
       </details>
     </section>
     </section>
@@ -68,26 +80,21 @@ document.querySelector("#app").innerHTML = `
   </main>
   <dialog id="confirm-dialog">
     <form id="confirm-form">
-      <p class="eyebrow">CONFIRM OPERATION</p><h2 id="dialog-title" tabindex="-1">Disable backups?</h2>
-      <p id="confirm-mode" class="notice"></p><p id="confirm-count"></p>
-      <ul id="confirm-targets" class="target-list" aria-label="Selected servers"></ul>
-      <label class="field">Request automatic re-enable after (minutes)<input id="delay" type="number" min="1" max="1440" value="60" required></label>
-      <label class="check"><input id="indefinite" type="checkbox"> Keep disabled until re-enabled in Commvault instead</label>
-      <p id="schedule-summary" class="schedule-summary" role="status"></p>
-      <label class="field">Type <strong>DISABLE BACKUPS</strong> to confirm<input id="confirmation" autocomplete="off" spellcheck="false" placeholder="DISABLE BACKUPS" required></label>
-      <p id="confirmation-help" class="fine">A successful response means Commvault accepted the request. Check Commvault for the current backup state and any re-enable schedule.</p>
-      <div class="dialog-actions"><button type="button" id="cancel" class="secondary">Cancel</button><button type="submit" id="confirm-submit" class="danger" disabled>Confirm disable</button></div>
+      <div class="confirmation-heading"><h2 id="dialog-title" tabindex="-1"></h2><span id="confirm-mode" class="mode"></span></div>
+      <p id="confirm-count"></p>
+      <ul id="confirm-targets" class="target-list" aria-label="Selected servers" tabindex="0"></ul>
+      <details id="server-details" class="server-details">
+        <summary>Server details</summary>
+        <ul id="confirm-server-details" class="target-list" aria-label="Selected server details" tabindex="0"></ul>
+      </details>
+      <div class="dialog-actions"><button type="button" id="cancel" class="secondary">Cancel</button><button type="submit" id="confirm-submit" class="danger">Disable backups</button></div>
     </form>
-  </dialog>
-  <dialog id="stop-tracking-dialog" aria-labelledby="stop-tracking-title">
-    <h2 id="stop-tracking-title">Stop tracking this request?</h2>
-    <p>This does not cancel queued or running work. Save the Request ID and verify its outcome before submitting the same operation again.</p>
-    <div class="dialog-actions"><button id="keep-tracking" class="secondary">Keep tracking</button><button id="confirm-stop-tracking" class="secondary">Stop tracking</button></div>
   </dialog>
 `;
 
 const $ = (id) => document.getElementById(id);
-const state = { config: null, msal: null, account: null, servers: [], selected: new Set(), results: new Map(), canDisable: null, busy: false, phase: "", loaded: false, inventoryFailed: false, updatedAt: null, inventory: null, requestId: null, requestTargets: null, trackingBlocked: false, polling: false, pollTimer: null };
+const PAGE_SIZE = 10;
+const state = { config: null, msal: null, account: null, servers: [], page: 0, selected: new Set(), confirmation: null, results: new Map(), canDisable: null, busy: false, phase: "", loaded: false, inventoryFailed: false, updatedAt: null, inventory: null, requestId: null, requestTargets: null, trackingBlocked: false, statusUnavailable: false, polling: false, pollTimer: null };
 const queuedMode = () => state.config?.executionMode === "queued";
 const validRequestId = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const terminalRequestStates = new Set(["completed", "partial", "failed", "unknown"]);
@@ -95,11 +102,14 @@ const showError = (message) => { $("error").textContent = message; $("error").hi
 const clearError = () => { $("error").hidden = true; $("error").textContent = ""; };
 const safeError = (error) => error.errorCode ? `Microsoft sign-in failed (${error.errorCode}).` : error.message;
 const displayName = (server) => server.displayName || server.name;
-const visibleServers = () => {
+const durationLabel = (minutes) => `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+const matchingServers = () => {
   const query = $("server-search").value.trim().toLowerCase();
   return state.servers.filter((server) => [server.name, server.displayName, server.hostName, String(server.id)]
     .some((value) => value?.toLowerCase().includes(query)));
 };
+const visibleServers = () => matchingServers().slice(state.page * PAGE_SIZE, (state.page + 1) * PAGE_SIZE);
+const selectionIncluding = (servers) => new Set([...state.selected, ...servers.map((server) => server.id)]);
 
 class ApiError extends Error {
   constructor(message, requestId, status) {
@@ -130,6 +140,13 @@ function setSupportDetails(details) {
   state.supportDetails = details;
   $("result-detail-text").textContent = JSON.stringify(details, null, 2);
   $("result-details").hidden = false;
+  $("result-support").hidden = false;
+}
+
+function commandSummary(accepted, total) {
+  return accepted === total
+    ? `Disable command accepted for ${total} server${total === 1 ? "" : "s"}.`
+    : `${accepted} of ${total} disable commands accepted.`;
 }
 
 function requestStorageKey() {
@@ -153,6 +170,7 @@ function forgetRequest() {
   state.requestId = null;
   state.requestTargets = null;
   state.trackingBlocked = false;
+  state.statusUnavailable = false;
   state.polling = false;
   try {
     localStorage.removeItem(requestStorageKey());
@@ -161,21 +179,22 @@ function forgetRequest() {
   }
 }
 
-function validateQueuedRecord(data) {
+function validateQueuedRecord(data, requestId = state.requestId, requestTargets = state.requestTargets) {
   const statuses = new Set(["queued", "running", ...terminalRequestStates]);
   const targetStatuses = new Set(["pending", "running", "accepted", "failed", "unknown"]);
   const ids = data?.serverIds;
-  if (data?.requestId !== state.requestId || !statuses.has(data.status)
+  const targetIds = new Set(Array.isArray(ids) ? ids : []);
+  if (data?.requestId !== requestId || !statuses.has(data.status)
     || !["stub", "live"].includes(data.mode)
     || typeof data.submittedAt !== "string" || !Number.isFinite(Date.parse(data.submittedAt))
     || typeof data.updatedAt !== "string" || !Number.isFinite(Date.parse(data.updatedAt))
-    || !Array.isArray(ids) || !ids.length || ids.length > 50
+    || !Array.isArray(ids) || !ids.length
     || ids.some((id) => !Number.isInteger(id) || id <= 0 || id > 2147483647)
-    || new Set(ids).size !== ids.length
-    || (state.requestTargets && (ids.length !== state.requestTargets.length || ids.some((id) => !state.requestTargets.includes(id))))
+    || targetIds.size !== ids.length
+    || (requestTargets && (ids.length !== requestTargets.length || requestTargets.some((id) => !targetIds.has(id))))
     || !Array.isArray(data.results) || data.results.length !== ids.length
     || new Set(data.results.map((item) => item?.serverId)).size !== ids.length
-    || data.results.some((item) => !ids.includes(item?.serverId) || !targetStatuses.has(item.status)
+    || data.results.some((item) => !targetIds.has(item?.serverId) || !targetStatuses.has(item.status)
       || (item.status === "accepted" ? item.success !== true : item.success !== false && item.success !== null))
     || (terminalRequestStates.has(data.status) && data.results.some((item) => ["pending", "running"].includes(item.status)))
     || (data.status === "completed" && data.results.some((item) => item.status !== "accepted"))
@@ -192,9 +211,12 @@ function validateQueuedRecord(data) {
 
 function renderQueuedRecord(data) {
   validateQueuedRecord(data);
+  state.statusUnavailable = false;
+  $("lookup-message").textContent = "";
+  $("result-next-step").hidden = false;
   state.requestTargets = data.serverIds;
   state.trackingBlocked = !terminalRequestStates.has(data.status);
-  const labels = { queued: "Queued", running: "Processing", completed: "Requests accepted", partial: "Partially accepted", failed: "Requests failed", unknown: "Check outcomes" };
+  const labels = { queued: "Queued", running: "Processing", completed: "Request completed", partial: "Partially completed", failed: "Request failed", unknown: "Outcome unknown" };
   $("result-state").textContent = labels[data.status];
   $("result-state").dataset.tone = state.trackingBlocked ? "pending" : data.status === "completed" ? "success" : "failure";
   const accepted = data.results.filter((item) => item.status === "accepted").length;
@@ -202,14 +224,15 @@ function renderQueuedRecord(data) {
   $("result-summary").textContent = data.status === "queued" ? "Request saved. Waiting for a worker."
     : data.status === "running" ? `${finished} of ${data.results.length} servers processed.`
       : data.status === "unknown" ? "Outcome uncertain for one or more servers."
-        : `${accepted} of ${data.results.length} requests accepted.`;
+        : commandSummary(accepted, data.results.length);
   $("result-next-step").textContent = state.trackingBlocked
-    ? "Processing continues on the server. You can leave this page and look up the saved request later."
-    : data.status === "completed" ? "Check Commvault to verify the backup state and any requested re-enable schedule."
+    ? "Updates automatically. You can leave this page."
+    : data.status === "completed" ? "Backup state and re-enable are not monitored."
       : "Check each target in Commvault before retrying. Support details include the per-server outcomes.";
-  $("tracking-message").textContent = `Saved ${data.mode === "stub" ? "Demo" : "Live"} request.${data.mode !== state.config.mode ? " This is not the current environment." : ""} ${state.trackingBlocked ? "Status updates automatically. Do not submit the same operation again." : "Outcomes loaded."}`;
+  $("tracking-message").textContent = data.mode !== state.config.mode
+    ? `Saved ${data.mode === "stub" ? "Demo" : "Live"} request. This is not the current environment.` : "";
   const names = new Map(state.servers.map((server) => [server.id, displayName(server)]));
-  const resultLabels = { pending: "Waiting", running: "Processing", accepted: "Request accepted", failed: "Needs review", unknown: "Outcome unknown - check Commvault" };
+  const resultLabels = { pending: "Waiting", running: "Processing", accepted: "Disable command accepted", failed: "Needs review", unknown: "Outcome unknown - check Commvault" };
   $("results").replaceChildren();
   for (const result of data.results) {
     state.results.set(result.serverId, { ...result, unknown: result.status === "unknown" });
@@ -247,9 +270,12 @@ async function checkRequestStatus() {
   } catch (error) {
     if (state.requestId !== requestId) return;
     state.trackingBlocked = true;
+    state.statusUnavailable = true;
     $("result-state").textContent = "Status unavailable";
     $("result-state").dataset.tone = "failure";
-    $("tracking-message").textContent = "Status could not be checked. This does not cancel the request. Use Check status; do not submit a duplicate.";
+    $("result-summary").textContent = "Unable to get the latest status.";
+    $("result-next-step").hidden = false;
+    $("result-next-step").textContent = "Retry status to check this request, not submit it again.";
     const lastKnown = state.supportDetails?.requestId === requestId ? state.supportDetails : {};
     setSupportDetails({
       ...lastKnown, requestId, statusCheckError: safeError(error),
@@ -264,35 +290,40 @@ async function checkRequestStatus() {
 }
 
 $("check-status").addEventListener("click", checkRequestStatus);
-$("stop-tracking").addEventListener("click", () => $("stop-tracking-dialog").showModal());
-$("keep-tracking").addEventListener("click", () => $("stop-tracking-dialog").close());
-$("confirm-stop-tracking").addEventListener("click", () => {
-  forgetRequest();
-  $("stop-tracking-dialog").close();
-  $("result-state").textContent = "Tracking stopped";
-  $("result-state").dataset.tone = "pending";
-  $("tracking-message").textContent = "Tracking stopped, not processing. Verify the request's outcome before submitting the same operation again.";
-  updateControls();
-  $("results-title").focus();
-});
 $("lookup-request").addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (state.busy || state.polling) return;
   const id = $("request-id").value.trim().toLowerCase();
   if (!validRequestId(id)) {
-    $("tracking-message").textContent = "Enter a valid Request ID from support details.";
+    $("lookup-message").textContent = "Enter a valid Request ID.";
     return;
   }
   if (state.trackingBlocked && state.requestId !== id) {
-    $("tracking-message").textContent = "Check the current request's outcome before switching to another request.";
+    $("lookup-message").textContent = "Wait for the current request's outcome before looking up another.";
     return;
   }
-  state.requestId = id;
-  state.requestTargets = null;
-  state.trackingBlocked = true;
-  state.selected.clear();
-  $("copy-status").textContent = "";
-  rememberRequest(id);
-  await checkRequestStatus();
+  if (state.requestId === id) {
+    await checkRequestStatus();
+    return;
+  }
+  state.polling = true;
+  $("lookup-message").textContent = "";
+  updateControls();
+  try {
+    const data = await api(`/api/requests/${id}`, { signal: AbortSignal.timeout(15000) });
+    validateQueuedRecord(data, id, null);
+    state.requestId = id;
+    state.requestTargets = null;
+    state.selected.clear();
+    $("copy-status").textContent = "";
+    renderQueuedRecord(data);
+    scheduleStatusCheck();
+  } catch (error) {
+    $("lookup-message").textContent = safeError(error);
+  } finally {
+    state.polling = false;
+    updateControls();
+  }
 });
 
 $("copy-details").addEventListener("click", async () => {
@@ -336,30 +367,36 @@ async function api(path, options = {}) {
 }
 
 function updateControls() {
+  const matching = matchingServers();
   const visible = visibleServers();
   const visibleSelected = visible.filter((s) => state.selected.has(s.id)).length;
   const hiddenSelected = state.selected.size - visibleSelected;
   const allVisibleSelected = visible.length > 0 && visibleSelected === visible.length;
-  const exceedsLimit = state.selected.size + visible.length - visibleSelected > 50;
+  const allMatchingSelected = matching.every((server) => state.selected.has(server.id));
+  const selectionDisabled = state.busy || state.polling || state.trackingBlocked || !state.canDisable;
   $("selection-count").textContent = state.selected.size;
-  $("selection-noun").textContent = state.selected.size === 1 ? "server selected" : "servers selected";
-  $("red-button").disabled = state.busy || state.trackingBlocked || !state.canDisable || state.selected.size === 0 || state.selected.size > 50;
+  $("off-page-count").textContent = hiddenSelected ? ` (${hiddenSelected} off-page)` : "";
+  $("red-button").disabled = selectionDisabled || state.selected.size === 0;
   $("refresh").disabled = state.busy || !state.account;
-  $("infrastructure").disabled = state.busy || !state.account;
   $("server-search").disabled = state.busy || !state.loaded;
-  $("select-all").disabled = state.busy || state.trackingBlocked || !state.canDisable || !visible.length || (exceedsLimit && !allVisibleSelected);
-  $("select-all").checked = allVisibleSelected;
-  $("select-all").indeterminate = visibleSelected > 0 && !allVisibleSelected;
-  $("selection-status").textContent = `${state.selected.size} of 50 selected${hiddenSelected ? ` / ${hiddenSelected} hidden by search` : ""}`;
-  $("selection-limit").hidden = !exceedsLimit || !state.canDisable;
+  $("select-page").disabled = selectionDisabled || !visible.length;
+  $("select-page").checked = allVisibleSelected;
+  $("select-page").indeterminate = visibleSelected > 0 && !allVisibleSelected;
+  $("select-page").setAttribute("aria-label", `Select page (${visible.length} servers)`);
+  $("select-all").textContent = $("server-search").value.trim() ? `Select all ${matching.length} matches` : `Select all (${matching.length})`;
+  $("select-all").disabled = selectionDisabled || !matching.length || allMatchingSelected;
+  $("previous-page").disabled = state.busy || state.page === 0;
+  $("next-page").disabled = state.busy || (state.page + 1) * PAGE_SIZE >= matching.length;
+  const timingDisabled = selectionDisabled;
+  $("indefinite").disabled = timingDisabled;
+  $("delay").disabled = timingDisabled || $("indefinite").checked;
   $("clear-selection").disabled = state.busy || state.selected.size === 0;
   $("sign-in").disabled = state.busy || !state.config?.identityConfigured;
   $("inventory").setAttribute("aria-busy", String(state.phase === "loading"));
   $("red-button").setAttribute("aria-busy", String(state.phase === "submitting"));
   $("refresh").textContent = state.phase === "loading" ? "Loading..." : state.account && state.canDisable === null ? "Retry sign-in" : state.inventoryFailed ? "Retry inventory" : queuedMode() ? "Reload inventory" : "Refresh";
-  $("check-status").hidden = !state.requestId;
-  $("stop-tracking").hidden = !state.requestId;
-  $("stop-tracking").disabled = state.busy;
+  $("check-status").hidden = !state.requestId || !state.statusUnavailable;
+  $("request-tracking").hidden = !queuedMode() || !(state.statusUnavailable || $("tracking-message").textContent || $("tracking-storage-warning").textContent);
   $("check-status").disabled = state.busy || state.polling;
   $("lookup-submit").disabled = state.busy || state.polling;
   $("request-id").disabled = state.busy || state.polling;
@@ -377,20 +414,26 @@ function updateControls() {
   else if (!state.selected.size) guidance = "Select at least one server to enable the red button.";
   $("button-guidance").textContent = guidance;
   for (const checkbox of $("servers").querySelectorAll("input")) {
-    checkbox.disabled = state.busy || state.trackingBlocked || !state.canDisable || (state.selected.size >= 50 && !checkbox.checked);
+    checkbox.disabled = selectionDisabled;
     checkbox.closest("tr").classList.toggle("selected-row", checkbox.checked);
   }
 }
 
 function renderServers() {
-  const visible = visibleServers();
+  const matching = matchingServers();
+  const pageCount = Math.max(1, Math.ceil(matching.length / PAGE_SIZE));
+  state.page = Math.min(state.page, pageCount - 1);
+  const start = state.page * PAGE_SIZE;
+  const visible = matching.slice(start, start + PAGE_SIZE);
   $("servers").replaceChildren();
   $("server-count").textContent = state.servers.length;
   $("empty").hidden = visible.length > 0;
   if (state.loaded) {
-    $("empty").textContent = state.servers.length ? "No matching servers. Try a different name, hostname, or ID." : "No servers returned. Try turning off Infrastructure only or refresh the inventory.";
-    $("inventory-status").textContent = `${visible.length} of ${state.servers.length} shown / ${queuedMode() ? "Cached as of" : "Updated"} ${state.updatedAt.toLocaleString([], { ...(queuedMode() ? { month: "short", day: "numeric" } : {}), hour: "2-digit", minute: "2-digit" })}`;
+    $("empty").textContent = state.servers.length ? "No matching servers. Try a different name, hostname, or ID." : "No servers returned. Refresh the inventory to try again.";
+    $("inventory-status").textContent = `${matching.length ? start + 1 : 0}-${start + visible.length} of ${matching.length}${queuedMode() ? ` / Cached as of ${state.updatedAt.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}`;
   }
+  $("pagination").hidden = !state.loaded || pageCount === 1;
+  $("page-status").textContent = `Page ${state.page + 1} of ${pageCount}`;
   $("inventory-freshness").hidden = !state.loaded || !state.inventory || (!state.inventory.stale && !state.inventory.refreshError);
   $("inventory-freshness").textContent = state.inventory?.stale
     ? "Cached inventory is out of date. Confirm target identity before submitting; the background refresh has not supplied a fresh list."
@@ -403,7 +446,7 @@ function renderServers() {
     check.setAttribute("aria-label", `Select ${server.displayName || server.name}`);
     check.checked = state.selected.has(server.id);
     check.addEventListener("change", () => {
-      if (check.checked && state.selected.size < 50) state.selected.add(server.id);
+      if (check.checked) state.selected.add(server.id);
       else { state.selected.delete(server.id); check.checked = false; }
       updateControls();
     });
@@ -418,7 +461,7 @@ function renderServers() {
     const result = state.results.get(server.id);
     const status = row.insertCell();
     const pending = result && ["pending", "running"].includes(result.status);
-    status.textContent = pending ? result.status === "pending" ? "Waiting" : "Processing" : result ? result.unknown ? "Outcome unknown" : result.success ? "Request accepted" : "Failed / check result" : "No action";
+    status.textContent = pending ? result.status === "pending" ? "Waiting" : "Processing" : result ? result.unknown ? "Outcome unknown" : result.success ? "Disable command accepted" : "Failed / check result" : "No action";
     status.className = pending ? "muted" : result ? result.success ? "success-text" : "failure-text" : "muted";
     $("servers").append(row);
   }
@@ -438,11 +481,12 @@ async function refresh() {
   state.phase = "loading";
   state.inventoryFailed = false;
   state.selected.clear();
-  $("inventory-status").textContent = "Loading servers. Selection is cleared when inventory is refreshed.";
+  state.page = 0;
+  $("inventory-status").textContent = "Loading servers...";
   updateControls();
   try {
     if (state.canDisable === null) await loadPermissions();
-    const data = await api(`/api/servers?showOnlyInfrastructureMachines=${$("infrastructure").checked ? 1 : 0}`);
+    const data = await api("/api/servers?showOnlyInfrastructureMachines=0");
     if (queuedMode() && (!data.inventory || typeof data.inventory.stale !== "boolean"
       || typeof data.inventory.updatedAt !== "string" || Number.isNaN(Date.parse(data.inventory.updatedAt)))) {
       throw new Error("Cached inventory has no valid refresh timestamp.");
@@ -476,14 +520,24 @@ $("sign-in").addEventListener("click", async () => {
   } catch (error) { showError(safeError(error)); }
 });
 $("refresh").addEventListener("click", refresh);
-$("infrastructure").addEventListener("change", refresh);
-$("server-search").addEventListener("input", renderServers);
+$("server-search").addEventListener("input", () => { state.page = 0; renderServers(); });
+$("previous-page").addEventListener("click", () => {
+  if (!$("previous-page").disabled) { state.page--; renderServers(); }
+});
+$("next-page").addEventListener("click", () => {
+  if (!$("next-page").disabled) { state.page++; renderServers(); }
+});
 $("clear-selection").addEventListener("click", () => { state.selected.clear(); renderServers(); });
-$("select-all").addEventListener("change", () => {
+$("select-all").addEventListener("click", () => {
+  if ($("select-all").disabled) return;
+  state.selected = selectionIncluding(matchingServers());
+  renderServers();
+});
+$("select-page").addEventListener("change", () => {
+  if ($("select-page").disabled) return;
   const visible = visibleServers();
-  if ($("select-all").checked) {
-    const combined = new Set([...state.selected, ...visible.map((s) => s.id)]);
-    if (combined.size <= 50) state.selected = combined;
+  if ($("select-page").checked) {
+    state.selected = selectionIncluding(visible);
   } else {
     visible.forEach((s) => state.selected.delete(s.id));
   }
@@ -491,36 +545,50 @@ $("select-all").addEventListener("change", () => {
 });
 $("red-button").addEventListener("click", () => {
   if ($("red-button").disabled) return;
-  $("confirmation").value = "";
-  $("confirm-submit").disabled = true;
-  $("delay").value = "60";
-  $("indefinite").checked = false;
-  $("delay").disabled = false;
-  $("delay").required = true;
-  $("confirm-mode").textContent = state.config.mode === "stub" ? "DEMO: only simulated servers will change." : "LIVE: this will change the client's backup configuration.";
-  $("confirm-count").textContent = `${state.selected.size} selected ${state.selected.size === 1 ? "server" : "servers"}. Only these targets will be affected.`;
+  if (!$("options-form").checkValidity()) {
+    $("timing-options").open = true;
+    $("options-form").reportValidity();
+    return;
+  }
+  state.confirmation = {
+    serverIds: [...state.selected],
+    delayMinutes: $("indefinite").checked ? null : Number($("delay").value),
+  };
+  const demo = state.config.mode === "stub";
+  $("confirm-mode").textContent = demo ? "DEMO" : "LIVE";
+  $("confirm-mode").classList.toggle("live", !demo);
+  const count = state.confirmation.serverIds.length;
+  $("confirm-count").textContent = `${count} ${count === 1 ? "server" : "servers"}`;
+  $("confirm-count").hidden = count === 1;
+  $("server-details").open = false;
   $("confirm-targets").replaceChildren();
+  $("confirm-server-details").replaceChildren();
   for (const server of state.servers.filter((s) => state.selected.has(s.id))) {
     const item = document.createElement("li");
-    item.textContent = `${displayName(server)} / ${server.hostName || server.name} / ID ${server.id}`;
+    item.textContent = displayName(server);
     $("confirm-targets").append(item);
+    const detail = document.createElement("li");
+    detail.textContent = `${displayName(server)} / ${server.hostName || server.name} / ID ${server.id}`;
+    $("confirm-server-details").append(detail);
   }
-  updateSchedule();
+  $("dialog-title").textContent = state.confirmation.delayMinutes === null
+    ? "Disable backups until manually re-enabled?"
+    : `Disable backups for ${durationLabel(state.confirmation.delayMinutes)}?`;
   $("confirm-dialog").showModal();
   $("dialog-title").focus();
 });
 $("confirm-dialog").setAttribute("aria-labelledby", "dialog-title");
+$("confirm-dialog").setAttribute("aria-describedby", "confirm-mode confirm-count");
 $("cancel").addEventListener("click", () => $("confirm-dialog").close());
-$("confirmation").addEventListener("input", () => { $("confirm-submit").disabled = $("confirmation").value !== "DISABLE BACKUPS"; });
+$("confirm-dialog").addEventListener("close", () => { state.confirmation = null; });
+$("options-form").addEventListener("submit", (event) => { event.preventDefault(); });
 function updateSchedule() {
   if ($("indefinite").checked) {
-    $("schedule-summary").textContent = "No automatic re-enable. You must re-enable backups in Commvault.";
+    $("timing-label").textContent = "Duration: until manually re-enabled";
   } else if ($("delay").validity.valid && $("delay").value) {
-    const minutes = Number($("delay").value);
-    const deadline = new Date(Date.now() + minutes * 60000);
-    $("schedule-summary").textContent = `Re-enable requested ${minutes} minutes after confirmation (approximately ${deadline.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}, your local time).${queuedMode() ? " This deadline does not move if processing starts later." : ""}`;
+    $("timing-label").textContent = `Duration: ${durationLabel(Number($("delay").value))}`;
   } else {
-    $("schedule-summary").textContent = "Choose a whole number from 1 to 1,440 minutes.";
+    $("timing-label").textContent = "Choose 1-1,440 whole minutes";
   }
 }
 $("delay").addEventListener("input", updateSchedule);
@@ -531,10 +599,10 @@ $("indefinite").addEventListener("change", () => {
 });
 $("confirm-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (state.busy || state.trackingBlocked || !state.canDisable || $("confirmation").value !== "DISABLE BACKUPS" || !$("confirm-form").reportValidity()) return;
-  const serverIds = [...state.selected];
+  if (state.busy || state.polling || state.trackingBlocked || !state.canDisable || !$("confirm-dialog").open || !state.confirmation) return;
+  const { serverIds, delayMinutes } = state.confirmation;
   const targetNames = new Map(state.servers.map((s) => [s.id, displayName(s)]));
-  const options = $("indefinite").checked ? {} : { enableAfterADelay: Math.floor(Date.now() / 1000) + Number($("delay").value) * 60 };
+  const options = delayMinutes === null ? {} : { enableAfterADelay: Math.floor(Date.now() / 1000) + delayMinutes * 60 };
   const supportContext = {
     submittedAt: new Date().toISOString(),
     environment: state.config.mode === "stub" ? "Demo" : "Live",
@@ -550,12 +618,17 @@ $("confirm-form").addEventListener("submit", async (event) => {
   $("result-state").dataset.tone = "pending";
   $("results-title").focus();
   $("result-summary").textContent = "Submitting selected servers. Do not retry while this request is running.";
+  $("result-next-step").hidden = false;
   $("result-next-step").textContent = "Keep this page open while the requests are processed.";
   $("results").replaceChildren();
-  $("result-details").hidden = true;
+  $("result-details").hidden = !queuedMode();
+  $("result-support").hidden = true;
   $("result-details").open = false;
   $("result-detail-text").textContent = "";
   $("copy-status").textContent = "";
+  $("lookup-message").textContent = "";
+  $("tracking-message").textContent = "";
+  state.statusUnavailable = false;
   if (queuedMode()) {
     state.requestId = crypto.randomUUID();
     state.requestTargets = serverIds;
@@ -574,28 +647,29 @@ $("confirm-form").addEventListener("submit", async (event) => {
       scheduleStatusCheck();
       return;
     }
+    const targetIds = new Set(serverIds);
     if (!Array.isArray(data.results) || data.results.length !== serverIds.length
       || new Set(data.results.map((result) => result?.serverId)).size !== serverIds.length
-      || data.results.some((result) => !serverIds.includes(result?.serverId) || typeof result.success !== "boolean")) {
+      || data.results.some((result) => !targetIds.has(result?.serverId) || typeof result.success !== "boolean")) {
       throw new ApiError("The server returned incomplete or invalid request results.", data.requestId);
     }
     const accepted = data.results.filter((r) => r.success).length;
-    $("result-state").textContent = accepted === data.results.length ? "Requests accepted" : accepted ? "Partially accepted" : "Requests failed";
+    $("result-state").textContent = accepted === data.results.length ? "Request completed" : accepted ? "Partially completed" : "Request failed";
     $("result-state").dataset.tone = accepted === data.results.length ? "success" : "failure";
-    $("result-summary").textContent = `${accepted} of ${data.results.length} requests accepted.`;
+    $("result-summary").textContent = commandSummary(accepted, data.results.length);
     $("result-next-step").textContent = accepted === data.results.length
-      ? "Check Commvault to verify the backup state and any re-enable schedule."
+      ? "Backup state and re-enable are not monitored."
       : "Some requests need review. Check their outcomes in Commvault before retrying; support details are available below.";
     setSupportDetails({ ...supportContext, requestId: data.requestId, results: data.results });
     for (const result of data.results) {
       state.results.set(result.serverId, result);
       const li = document.createElement("li");
       li.className = result.success ? "success-text" : "failure-text";
-      li.textContent = `${targetNames.get(result.serverId)}: ${result.success ? "Request accepted" : "Needs review - check Commvault before retrying."}`;
+      li.textContent = `${targetNames.get(result.serverId)}: ${result.success ? "Disable command accepted" : "Needs review - check Commvault before retrying."}`;
       $("results").append(li);
     }
   } catch (error) {
-    $("result-state").textContent = "Check outcomes";
+    $("result-state").textContent = "Outcome unknown";
     $("result-state").dataset.tone = "failure";
     $("result-summary").textContent = "Outcome unknown. Some operations may have completed.";
     $("result-next-step").textContent = "Do not assume the request failed. Check each target in Commvault before submitting again.";
@@ -607,17 +681,19 @@ $("confirm-form").addEventListener("submit", async (event) => {
       ...(queuedMode() ? { requestId: state.requestId } : {}),
     });
     serverIds.forEach((id) => state.results.set(id, { unknown: true, success: false }));
-    if (queuedMode() && error instanceof ApiError && [400, 401, 403, 413].includes(error.status)) {
-      forgetRequest();
+    if (error instanceof ApiError && [400, 401, 403, 413].includes(error.status)) {
+      if (queuedMode()) forgetRequest();
       serverIds.forEach((id) => state.results.set(id, { success: false, status: "failed" }));
       $("result-state").textContent = "Request rejected";
-      $("result-summary").textContent = "The request was rejected before it could be queued.";
+      $("result-summary").textContent = queuedMode()
+        ? "The request was rejected before it could be queued."
+        : "The request was rejected before any backup changes.";
       $("result-next-step").textContent = "Resolve the reported problem before submitting another request.";
       $("tracking-message").textContent = "";
+      setSupportDetails({ ...state.supportDetails, outcome: "Rejected" });
       showError(safeError(error));
     } else if (queuedMode()) {
       $("result-next-step").textContent = "Submission could not be confirmed. Check the saved Request ID before trying another operation.";
-      $("tracking-message").textContent = "The request may have been queued. Checking its saved status does not repeat the operation.";
       await checkRequestStatus();
     } else {
       showError("We could not confirm all outcomes. Check Commvault before retrying, or share the support details with your administrator.");
@@ -637,17 +713,14 @@ async function initialize() {
   state.config = await response.json();
   applyBranding(state.config);
   if (queuedMode()) {
-    $("request-tracking").hidden = false;
+    $("lookup-request").hidden = false;
+    $("result-details").hidden = false;
     document.querySelector(".column-note").textContent = "Tracked requests";
-    $("result-next-step").textContent = "Requests are saved on the server. Look up a Request ID to recover its outcomes.";
-    $("confirmation-help").textContent = "Confirmation queues a request; it does not mean backups have changed. Check Commvault for the actual backup state and any re-enable schedule.";
   }
   const demo = state.config.mode === "stub";
   $("mode").textContent = demo ? "DEMO" : "LIVE";
   $("mode").classList.toggle("live", !demo);
-  $("notice").textContent = demo
-    ? "Simulated environment. No real backups will change."
-    : "Live environment. Actions change real backup settings. Verify your selected servers before proceeding.";
+  $("notice").textContent = "Manage backup activity for your servers.";
   if (!state.config.identityConfigured) {
     $("sign-in").textContent = "Sign-in unavailable";
     showError("Sign-in is currently unavailable. Contact your administrator.");

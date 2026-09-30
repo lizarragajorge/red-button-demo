@@ -438,8 +438,11 @@ class Azure:
         require(not settings.get("WEBSITE_RUN_FROM_PACKAGE"), "Run-from-package targets require a different release procedure.")
         require(all(canonical_uuid(settings.get(key)) for key in
                     ("ENTRA_TENANT_ID", "ENTRA_API_CLIENT_ID", "ENTRA_SPA_CLIENT_ID")), "Entra identity must be configured.")
-        self.execution = settings.get("EXECUTION_MODE", "sync")
+        self.execution = settings.get("EXECUTION_MODE", "queued")
         require(self.execution in {"sync", "queued"}, "Unsupported execution mode.")
+        storage_name = settings.get("STORAGE_ACCOUNT_NAME", "")
+        require(self.execution != "queued" or (isinstance(storage_name, str) and re.fullmatch(r"[a-z0-9]{3,24}", storage_name)),
+                "Queued execution requires STORAGE_ACCOUNT_NAME; configure storage and the worker or explicitly select sync.")
         self.identity = {key: settings[name] for key, name in
                          (("tenantId", "ENTRA_TENANT_ID"), ("clientId", "ENTRA_SPA_CLIENT_ID"))}
         self.identity["scope"] = "api://" + settings["ENTRA_API_CLIENT_ID"] + "/access_as_user"

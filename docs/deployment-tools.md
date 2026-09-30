@@ -59,6 +59,11 @@ The tool validates the full ARM resource identity, Python 3.12/prebuilt settings
 single-worker startup, Entra configuration, **stub mode and live writes off**.
 It does not repair mismatches. It uses Entra-authenticated Kudu, not publishing
 passwords. Prevent concurrent deployments/configuration changes operationally.
+An omitted `EXECUTION_MODE` now means queued execution, matching the application.
+Queued targets require `STORAGE_ACCOUNT_NAME`; the helper rejects missing
+storage configuration before uploading. This setting check does not verify
+storage connectivity or worker readiness. Pin `EXECUTION_MODE=sync` explicitly
+for a synchronous target before deploying these packages.
 
 Each upload has unique operation metadata and a package hash. A `latest` response
 is resolved to exactly one matching deployment ID; only that ID is polled.
@@ -83,9 +88,9 @@ Use a new receipt path each time. Add `--ca-file path/to/approved-ca.pem` if
 needed, and configure Azure CLI trust separately. TLS and hostname verification
 cannot be disabled. Credentials, raw service bodies, and host keys are not logged.
 
-## 3. Queued recipes only: deploy the worker
+## 3. Deploy the worker (required by default)
 
-Skip this section for the simple demo. Worker verification is separate from web
+Skip this section only for an explicitly synchronous demo. Worker verification is separate from web
 verification; the web command deliberately rejects `--worker-app`.
 
 The [worker helper](../scripts/release_worker.py) is the maintained, tested

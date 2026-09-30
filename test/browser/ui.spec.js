@@ -5,7 +5,7 @@ test("unconfigured app visibly fails closed", async ({ page }) => {
   await mockApp(page, { configured: false });
   await page.goto("/");
   await expect(page.getByText("DEMO", { exact: true })).toBeVisible();
-  await expect(page.locator("#notice")).toHaveText("Simulated environment. No real backups will change.");
+  await expect(page.locator("#notice")).toHaveText("Manage backup activity for your servers.");
   await expect(page.getByRole("alert")).toHaveText("Sign-in is currently unavailable. Contact your administrator.");
   await expect(page.getByRole("button", { name: "Sign-in unavailable", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Review disable backups request" })).toBeDisabled();
@@ -26,7 +26,7 @@ test("unavailable sign-in shows one concise warning and keeps the red button vis
   await expect(page.locator("#setup")).toHaveCount(0);
 });
 
-test("selected IDs, typed confirmation, default delay and partial results", async ({ page }) => {
+test("selected IDs, click confirmation, default delay and partial results", async ({ page }) => {
   await mockApp(page);
   let submitted;
   await page.route("**/api/disable", async (route) => {
@@ -39,15 +39,13 @@ test("selected IDs, typed confirmation, default delay and partial results", asyn
   await expect(page.getByText("Demo operator", { exact: true })).toBeVisible();
   await expect(page.getByText("Finance <script>alert(1)</script>", { exact: true })).toBeVisible();
   await expect(page.locator("#servers script")).toHaveCount(0);
-  await page.getByRole("checkbox", { name: "Select all visible servers" }).check();
+  await page.getByRole("checkbox", { name: /^Select page/ }).check();
   await page.getByRole("button", { name: "Review disable backups request" }).click();
-  await expect(page.getByRole("button", { name: "Confirm disable", exact: true })).toBeDisabled();
-  await page.getByPlaceholder("DISABLE BACKUPS").fill("disable backups");
-  await expect(page.getByRole("button", { name: "Confirm disable", exact: true })).toBeDisabled();
-  await page.getByPlaceholder("DISABLE BACKUPS").fill("DISABLE BACKUPS");
+  await expect(page.getByRole("button", { name: "Disable backups", exact: true })).toBeEnabled();
+  await expect(page.getByRole("dialog").locator("input")).toHaveCount(0);
   const before = Math.floor(Date.now() / 1000);
-  await page.getByRole("button", { name: "Confirm disable", exact: true }).click();
-  await expect(page.locator("#result-summary")).toContainText("1 of 2 requests accepted");
+  await page.getByRole("button", { name: "Disable backups", exact: true }).click();
+  await expect(page.locator("#result-summary")).toContainText("1 of 2 disable commands accepted");
   expect(submitted.serverIds).toEqual([101, 102]);
   expect(submitted.confirmation).toBe("DISABLE BACKUPS");
   expect(submitted.options.enableAfterADelay).toBeGreaterThanOrEqual(before + 3600);
@@ -61,7 +59,7 @@ test("selected IDs, typed confirmation, default delay and partial results", asyn
   await expect(page.locator("#result-detail-text")).toContainText("503");
   await expect(page.locator("#result-detail-text")).toContainText("test-request");
   await expect(page.locator("#result-detail-text script")).toHaveCount(0);
-  await expect(page.locator("#result-state")).toHaveText("Partially accepted");
+  await expect(page.locator("#result-state")).toHaveText("Partially completed");
   await expect(page.getByRole("button", { name: "Review disable backups request" })).toBeDisabled();
 });
 
@@ -69,22 +67,25 @@ test("read-only operator cannot select or submit, live state is conspicuous", as
   await mockApp(page, { canDisable: false, mode: "live" });
   await page.goto("/");
   await expect(page.getByText("LIVE", { exact: true })).toBeVisible();
-  await expect(page.locator("#notice")).toContainText("Actions change real backup settings.");
+  await expect(page.locator("#notice")).toHaveText("Manage backup activity for your servers.");
   await expect(page.getByRole("checkbox", { name: "Select Demo CommServe", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Review disable backups request" })).toBeDisabled();
 });
 
-test("filter clears selection and cancellation sends no mutation", async ({ page }) => {
+test("inventory includes both server types and cancellation sends no mutation", async ({ page }) => {
   await mockApp(page);
   let mutations = 0;
   await page.route("**/api/disable", (route) => { mutations++; return route.abort(); });
   await page.goto("/");
+  await expect(page.getByRole("checkbox", { name: "Infrastructure only" })).toHaveCount(0);
+  await expect(page.locator("#servers")).toContainText("Infrastructure");
+  await expect(page.locator("#servers")).toContainText("Workload");
   await page.getByRole("checkbox", { name: "Select Demo CommServe", exact: true }).check();
   await page.getByRole("button", { name: "Review disable backups request" }).click();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   expect(mutations).toBe(0);
-  await page.getByRole("checkbox", { name: "Infrastructure only" }).check();
-  await expect(page.locator("#server-count")).toHaveText("1");
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(page.locator("#server-count")).toHaveText("2");
   await expect(page.locator("#selection-count")).toHaveText("0");
 });
 
@@ -94,10 +95,11 @@ test("network failure warns about unknown outcomes and never auto-retries", asyn
   await page.route("**/api/disable", (route) => { mutations++; return route.abort("failed"); });
   await page.goto("/");
   await page.getByRole("checkbox", { name: "Select Demo CommServe", exact: true }).check();
+  await page.locator("#timing-options summary").click();
+  await page.getByRole("checkbox", { name: "Until manually re-enabled", exact: true }).check();
   await page.getByRole("button", { name: "Review disable backups request" }).click();
-  await page.getByLabel("Keep disabled until re-enabled in Commvault instead").check();
-  await page.getByPlaceholder("DISABLE BACKUPS").fill("DISABLE BACKUPS");
-  await page.getByRole("button", { name: "Confirm disable", exact: true }).click();
+  await expect(page.locator("#dialog-title")).toHaveText("Disable backups until manually re-enabled?");
+  await page.getByRole("button", { name: "Disable backups", exact: true }).click();
   await expect(page.locator("#result-summary")).toContainText("Some operations may have completed");
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(page.locator("#servers")).toContainText("Outcome unknown");
@@ -133,12 +135,18 @@ for (const width of [390, 820, 1440]) {
     await expect(control).toHaveAccessibleDescription("Review first. Nothing changes until you confirm.");
     await page.screenshot({ path: testInfo.outputPath("operator-view.png"), fullPage: true });
     await page.getByRole("button", { name: "Review disable backups request" }).click();
-    const dialog = page.getByRole("dialog", { name: "Disable backups?" });
+    const dialog = page.getByRole("dialog", { name: "Disable backups for 60 minutes?" });
     await expect(dialog).toBeVisible();
     const bounds = await dialog.boundingBox();
     expect(bounds.x).toBeGreaterThanOrEqual(0);
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
-    await expect(page.getByRole("button", { name: "Confirm disable", exact: true })).toBeDisabled();
+    expect(bounds.y).toBeGreaterThanOrEqual(0);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(900);
+    expect(bounds.height).toBeLessThan(400);
+    await expect(dialog.locator("input")).toHaveCount(0);
+    expect((await dialog.innerText()).trim().split(/\s+/).length).toBeLessThan(30);
+    expect(await dialog.innerText()).not.toContain("demo.invalid");
+    await expect(page.getByRole("button", { name: "Disable backups", exact: true })).toBeEnabled();
     await page.screenshot({ path: testInfo.outputPath("confirmation-view.png") });
     await page.keyboard.press("Escape");
     await expect(dialog).not.toBeVisible();
@@ -160,15 +168,17 @@ test("search preserves hidden selections and review includes every selected serv
   await page.goto("/");
   await page.getByRole("checkbox", { name: "Select Demo CommServe", exact: true }).check();
   await page.getByRole("searchbox", { name: "Find a server" }).fill("finance.demo.invalid");
-  await expect(page.locator("#selection-status")).toHaveText("1 of 50 selected / 1 hidden by search");
+  await expect(page.locator("#selection-status")).toHaveText("1 selected (1 off-page)");
   await expect(page.locator("#servers tr")).toHaveCount(1);
-  await page.getByRole("checkbox", { name: "Select all visible servers" }).check();
+  await page.getByRole("checkbox", { name: /^Select page/ }).check();
   await expect(page.locator("#selection-count")).toHaveText("2");
   await page.getByRole("button", { name: "Review disable backups request" }).click();
-  await expect(page.getByRole("heading", { name: "Disable backups?", exact: true })).toBeFocused();
+  await expect(page.getByRole("heading", { name: "Disable backups for 60 minutes?", exact: true })).toBeFocused();
   await expect(page.locator("#confirm-targets li")).toHaveCount(2);
-  await expect(page.locator("#confirm-targets")).toContainText("ID 101");
-  await expect(page.locator("#confirm-targets")).toContainText("ID 102");
+  await expect(page.locator("#confirm-server-details")).toBeHidden();
+  await page.locator("#server-details summary").click();
+  await expect(page.locator("#confirm-server-details")).toContainText("ID 101");
+  await expect(page.locator("#confirm-server-details")).toContainText("ID 102");
   await expect(page.locator("#confirm-targets script")).toHaveCount(0);
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.getByRole("button", { name: "Review disable backups request" })).toBeFocused();
@@ -183,29 +193,10 @@ test("search has an actionable empty state and supports numeric IDs", async ({ p
   await expect(search).toBeEnabled();
   await search.fill("does-not-exist");
   await expect(page.locator("#empty")).toContainText("No matching servers");
-  await expect(page.getByRole("checkbox", { name: "Select all visible servers" })).toBeDisabled();
+  await expect(page.getByRole("checkbox", { name: /^Select page/ })).toBeDisabled();
   await search.fill("101");
   await expect(page.locator("#servers tr")).toHaveCount(1);
   await expect(page.locator("#servers")).toContainText("Demo CommServe");
-});
-
-test("bulk selection never silently truncates and individual selection is capped at 50", async ({ page }) => {
-  await mockApp(page);
-  const many = Array.from({ length: 51 }, (_, index) => ({
-    id: index + 1, name: `server-${index + 1}`, hostName: `host-${index + 1}.invalid`,
-  }));
-  await page.route("**/api/servers?*", (route) => route.fulfill({ json: { totalServers: many.length, servers: many } }));
-  await page.goto("/");
-  await expect(page.locator("#servers tr")).toHaveCount(51);
-  await expect(page.getByRole("checkbox", { name: "Select all visible servers" })).toBeDisabled();
-  await expect(page.locator("#selection-limit")).toBeVisible();
-  for (let id = 1; id <= 50; id++) {
-    await page.getByRole("checkbox", { name: `Select server-${id}`, exact: true }).check();
-  }
-  await expect(page.locator("#selection-count")).toHaveText("50");
-  await expect(page.getByRole("checkbox", { name: "Select server-51", exact: true })).toBeDisabled();
-  await page.getByRole("checkbox", { name: "Select server-1", exact: true }).uncheck();
-  await expect(page.getByRole("checkbox", { name: "Select server-51", exact: true })).toBeEnabled();
 });
 
 test("inventory failure provides retry and loading feedback without enabling actions", async ({ page }) => {
@@ -231,20 +222,25 @@ test("inventory failure provides retry and loading feedback without enabling act
   await expect(page.getByRole("alert")).toBeHidden();
 });
 
-test("review resets indefinite mode and describes the schedule explicitly", async ({ page }) => {
+test("timing is configured outside confirmation and retained after cancel", async ({ page }) => {
   await mockApp(page);
   await page.goto("/");
   await page.getByRole("checkbox", { name: "Select Demo CommServe", exact: true }).check();
   const red = page.getByRole("button", { name: "Review disable backups request" });
   await red.click();
-  await expect(page.locator("#schedule-summary")).toContainText("60 minutes after confirmation");
-  await page.getByLabel("Keep disabled until re-enabled in Commvault instead").check();
-  await expect(page.locator("#schedule-summary")).toContainText("No automatic re-enable");
+  await expect(page.locator("#dialog-title")).toHaveText("Disable backups for 60 minutes?");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.locator("#timing-options summary").click();
+  await page.getByRole("checkbox", { name: "Until manually re-enabled", exact: true }).check();
   await red.click();
-  await expect(page.getByLabel("Keep disabled until re-enabled in Commvault instead")).not.toBeChecked();
-  await expect(page.getByRole("spinbutton")).toHaveValue("60");
-  await expect(page.getByPlaceholder("DISABLE BACKUPS")).toHaveValue("");
+  await expect(page.locator("#dialog-title")).toHaveText("Disable backups until manually re-enabled?");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("checkbox", { name: "Until manually re-enabled", exact: true })).toBeChecked();
+  await expect(page.getByRole("spinbutton")).toBeDisabled();
+  await page.getByRole("checkbox", { name: "Until manually re-enabled", exact: true }).uncheck();
+  await page.getByRole("spinbutton").fill("30");
+  await red.click();
+  await expect(page.locator("#dialog-title")).toHaveText("Disable backups for 30 minutes?");
 });
 
 test("pending submission is visible and blocks repeat actions until results arrive", async ({ page }) => {
@@ -261,14 +257,16 @@ test("pending submission is visible and blocks repeat actions until results arri
   await page.getByRole("checkbox", { name: "Select Demo CommServe", exact: true }).check();
   const red = page.getByRole("button", { name: "Review disable backups request" });
   await red.click();
-  await page.getByPlaceholder("DISABLE BACKUPS").fill("DISABLE BACKUPS");
-  await page.getByRole("button", { name: "Confirm disable", exact: true }).click();
+  await page.getByRole("button", { name: "Disable backups", exact: true }).click();
   await expect(red).toHaveAttribute("aria-busy", "true");
   await expect(red).toBeDisabled();
   await expect(page.getByRole("button", { name: "Refresh", exact: true })).toBeDisabled();
   await expect(page.locator("#result-state")).toHaveText("In progress");
   release();
-  await expect(page.locator("#result-state")).toHaveText("Requests accepted");
+  await expect(page.locator("#result-state")).toHaveText("Request completed");
+  await expect(page.locator("#result-summary")).toHaveText("Disable command accepted for 1 server.");
+  await expect(page.locator("#result-next-step")).toHaveText("Backup state and re-enable are not monitored.");
+  await expect(page.locator("#results")).toContainText("Demo CommServe: Disable command accepted");
   await expect(red).toHaveAttribute("aria-busy", "false");
   expect(mutations).toBe(1);
 });
@@ -297,7 +295,7 @@ test("keyboard navigation supports skip link, selection, review and safe cancell
   const red = page.getByRole("button", { name: "Review disable backups request" });
   await red.focus();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("heading", { name: "Disable backups?", exact: true })).toBeFocused();
+  await expect(page.getByRole("heading", { name: "Disable backups for 60 minutes?", exact: true })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(red).toBeFocused();
   expect(mutations).toBe(0);
@@ -316,12 +314,11 @@ test("unknown outcomes replace old success labels instead of implying the latest
   for (let attempt = 1; attempt <= 2; attempt++) {
     await page.getByRole("checkbox", { name: "Select Demo CommServe", exact: true }).check();
     await page.getByRole("button", { name: "Review disable backups request" }).click();
-    await page.getByPlaceholder("DISABLE BACKUPS").fill("DISABLE BACKUPS");
-    await page.getByRole("button", { name: "Confirm disable", exact: true }).click();
-    await expect(page.locator("#result-state")).toHaveText(attempt === 1 ? "Requests accepted" : "Check outcomes");
+    await page.getByRole("button", { name: "Disable backups", exact: true }).click();
+    await expect(page.locator("#result-state")).toHaveText(attempt === 1 ? "Request completed" : "Outcome unknown");
   }
   await expect(page.locator("#servers")).toContainText("Outcome unknown");
-  await expect(page.locator("#servers")).not.toContainText("Request accepted");
+  await expect(page.locator("#servers")).not.toContainText("Disable command accepted");
   await expect(page.locator("#result-details")).not.toHaveAttribute("open", "");
   await expect(page.locator("#result-detail-text")).not.toContainText("initial");
   await expect(page.locator("#copy-status")).toHaveText("");
@@ -369,10 +366,9 @@ test("support copy includes useful diagnostics but no authentication data", asyn
   await page.goto("/");
   await page.getByRole("checkbox", { name: "Select Demo CommServe", exact: true }).check();
   await page.getByRole("button", { name: "Review disable backups request" }).click();
-  await expect(page.getByRole("spinbutton")).toHaveAccessibleName("Request automatic re-enable after (minutes)");
-  await page.getByPlaceholder("DISABLE BACKUPS").fill("DISABLE BACKUPS");
-  await page.getByRole("button", { name: "Confirm disable", exact: true }).click();
-  await expect(page.locator("#result-state")).toHaveText("Check outcomes");
+  await expect(page.locator("#dialog-title")).toHaveText("Disable backups for 60 minutes?");
+  await page.getByRole("button", { name: "Disable backups", exact: true }).click();
+  await expect(page.locator("#result-state")).toHaveText("Outcome unknown");
   await expect(page.locator("#result-detail-text")).toBeHidden();
   await page.locator("#result-details summary").focus();
   await page.keyboard.press("Enter");
@@ -399,10 +395,9 @@ test("clipboard denial provides manual copy guidance", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("checkbox", { name: "Select Demo CommServe", exact: true }).check();
   await page.getByRole("button", { name: "Review disable backups request" }).click();
-  await page.getByPlaceholder("DISABLE BACKUPS").fill("DISABLE BACKUPS");
-  await page.getByRole("button", { name: "Confirm disable", exact: true }).click();
-  await expect(page.locator("#result-state")).toHaveText("Requests accepted");
-  await expect(page.locator("#result-next-step")).toContainText("verify the backup state");
+  await page.getByRole("button", { name: "Disable backups", exact: true }).click();
+  await expect(page.locator("#result-state")).toHaveText("Request completed");
+  await expect(page.locator("#result-next-step")).toHaveText("Backup state and re-enable are not monitored.");
   await page.locator("#result-details summary").click();
   await page.getByRole("button", { name: "Copy details", exact: true }).click();
   await expect(page.locator("#copy-status")).toContainText("Select and copy the details above manually.");
@@ -422,12 +417,11 @@ for (const responseType of ["incomplete", "duplicate", "non-json"]) {
           : [{ serverId: 101, success: true }] } });
     });
     await page.goto("/");
-    await page.getByRole("checkbox", { name: "Select all visible servers" }).check();
+    await page.getByRole("checkbox", { name: /^Select page/ }).check();
     await page.getByRole("button", { name: "Review disable backups request" }).click();
-    await page.getByPlaceholder("DISABLE BACKUPS").fill("DISABLE BACKUPS");
-    await page.getByRole("button", { name: "Confirm disable", exact: true }).click();
-    await expect(page.locator("#result-state")).toHaveText("Check outcomes");
-    await expect(page.locator("#servers")).not.toContainText("Request accepted");
+    await page.getByRole("button", { name: "Disable backups", exact: true }).click();
+    await expect(page.locator("#result-state")).toHaveText("Outcome unknown");
+    await expect(page.locator("#servers")).not.toContainText("Disable command accepted");
     await expect(page.locator("#servers tr").filter({ hasText: "Outcome unknown" })).toHaveCount(2);
     await expect(page.locator("#selection-count")).toHaveText("0");
     await page.locator("#result-details summary").click();

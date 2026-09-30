@@ -27,7 +27,7 @@ from server.storage import AzureRepository, Conflict, MemoryRepository, StorageU
 from test_app import IDENTITY, LocalKeys, disable, private_key, token
 
 CONFIG = Settings.from_env({
-    **IDENTITY, "APP_ENV": "test", "EXECUTION_MODE": "queued", "ALLOW_SIGNED_IN_DEMO_OPERATIONS": "false",
+    **IDENTITY, "APP_ENV": "test", "ALLOW_SIGNED_IN_DEMO_OPERATIONS": "false",
 })
 
 
@@ -76,8 +76,18 @@ async def record(repo, request_id):
     return (await repo.read("requests", f"{request_id}.json")).value
 
 
+async def test_default_queued_runtime_requires_storage_without_sync_fallback():
+    settings = Settings.from_env({})
+    assert settings.execution_mode == "queued"
+    app = create_app(settings)
+    with pytest.raises(StorageUnavailable, match="Queued execution requires storage configuration"):
+        async with app.router.lifespan_context(app):
+            pytest.fail("Default queued startup must not silently run without storage.")
+
+
 async def test_queued_api_auth_cache_and_owner_idempotency(private_key):
     async with api(private_key) as (http, repo):
+        assert CONFIG.execution_mode == "queued"
         assert (await http.get("/api/config")).json()["executionMode"] == "queued"
         assert (await http.get("/api/servers")).status_code == 503
         await refresh_inventory(repo, Client(), CONFIG)
@@ -131,6 +141,31 @@ async def test_enqueue_uncertainty_never_returns_accepted_and_is_correlated(priv
         client = Client()
         await execute_request(repo, client, CONFIG, key)
         assert client.calls == []
+
+
+@pytest.mark.parametrize("count", [51, 200])
+async def test_large_queued_requests_complete_and_replay_without_repeating_targets(private_key, count):
+    async with api(private_key) as (http, repo):
+        ids = list(range(1, count + 1))
+        key = str(uuid4())
+        response = await http.post("/api/disable", json=disable(ids), headers={"Idempotency-Key": key})
+        assert response.status_code == 202
+        assert response.json()["serverIds"] == ids
+        assert len(response.json()["results"]) == count
+        assert repo.messages == [key]
+        client = Client()
+        await execute_request(repo, client, CONFIG, key)
+        completed = (await http.get(f"/api/requests/{key}")).json()
+        assert completed["status"] == "completed"
+        assert completed["serverIds"] == ids
+        assert completed["results"] == [
+            {"serverId": server_id, "status": "accepted", "success": True} for server_id in ids
+        ]
+        await execute_request(repo, client, CONFIG, key)
+        replay = await http.post("/api/disable", json=disable(ids), headers={"Idempotency-Key": key})
+        assert replay.json() == completed
+        assert client.calls == ids
+        assert not any(container == "coordination" for container, _ in repo.documents)
 
 
 async def test_cache_failure_preserves_last_good_and_stale_age():

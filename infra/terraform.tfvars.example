@@ -24,8 +24,10 @@ spa_assignment_required = false
 commvault_mode           = "stub"
 allow_signed_in_demo_operations = true
 enable_live_operations   = false
-# Opt-in only: leaves the existing hosted synchronous demo unchanged by default.
-enable_three_tier                  = false
+# Default: provision storage and Functions; deploy both web and worker packages.
+# Set enable_three_tier=false for an explicitly synchronous, non-durable demo.
+enable_three_tier                  = true
+activate_queued_execution          = true
 enable_gateway_ingress             = false
 
 # Storage networking switch (requires enable_three_tier=true for private mode).
